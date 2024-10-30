@@ -1,7 +1,9 @@
 use byteorder::{ReadBytesExt, LE};
 use std::error::Error;
-use std::io;
-use std::io::{Read, Seek, SeekFrom};
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::path::Path;
+use std::{cmp, fs, io};
 
 fn read_signature(reader: &mut impl Read) -> Result<[u8; 4], io::Error> {
     let mut sig_buf = [0u8; 4];
@@ -37,7 +39,7 @@ struct MpkVersion {
 }
 
 #[derive(Debug)]
-struct MpkEntry {
+pub struct MpkEntry {
     id: u32,
     offset: u64,
     name: String,
@@ -103,6 +105,66 @@ impl<R: Read + Seek> MpkArchive<R> {
             );
         }
     }
+
+    // extracts entry specified by `entry_name_or_id` to a file. `path` is the path to the actual
+    // .mpk file, a folder with the name of the MPK minus the extension will be created
+    pub fn extract_entry(
+        &mut self,
+        path: &Path,
+        entry_name_or_id: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let mpk_dir = path.parent().unwrap().join(path.file_stem().unwrap());
+        fs::create_dir_all(&mpk_dir)?;
+
+        let entry = self.get_entry(entry_name_or_id).unwrap();
+        let entry_name = entry.name.clone();
+        let entry_path = mpk_dir.join(&entry.name);
+
+        let entry_file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&entry_path)?;
+        let mut entry_writer = BufWriter::new(entry_file);
+
+        let mut buffer = vec![0u8; 1024 * 16];  // good enough. might profile later
+        let mut total_written = 0;
+        let entry_len = entry.len as usize;
+
+        self.reader.seek(SeekFrom::Start(entry.offset))?;
+        while total_written < entry_len {
+            let bytes_remaining = entry_len - total_written;
+            let to_read = cmp::min(bytes_remaining, buffer.len());
+            let bytes_read = self.reader.read(&mut buffer[..to_read])?;
+
+            let bytes_written = entry_writer.write(&buffer[..bytes_read])?;
+            total_written += bytes_written;
+        }
+        entry_writer.flush()?;
+
+        if total_written == entry_len {
+            Ok(())
+        } else {
+            Err(format!("failed to extract entry file '{}'", entry_name).into())
+        }
+    }
+
+    pub fn get_entry(&self, entry_name_or_id: &str) -> Option<&MpkEntry> {
+        match entry_name_or_id.parse::<u32>() {
+            Ok(id) => self.get_entry_by_id(id),
+            Err(_) => self.get_entry_by_name(entry_name_or_id),
+        }
+    }
+
+    fn get_entry_by_id(&self, id: u32) -> Option<&MpkEntry> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
+    fn get_entry_by_name(&self, name: &str) -> Option<&MpkEntry> {
+        self.entries
+            .iter()
+            .find(|e| e.name.to_lowercase() == name.to_lowercase())
+    }
 }
 
 impl MpkVersion {
@@ -120,6 +182,10 @@ impl MpkVersion {
 }
 
 impl MpkEntry {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     fn read_at_offset<R: Read + Seek>(
         offset: u64,
         mpk_reader: &mut R,

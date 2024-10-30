@@ -15,9 +15,15 @@ fn main() {
 
     let mut reader = BufReader::new(mpk_file);
 
-    let mpk = MpkArchive::from_mpk(&mut reader).unwrap();
+    let mut mpk = MpkArchive::from_mpk(&mut reader).unwrap();
 
     eprintln!("loaded MPK archive: {mpk:#?}");
 
     mpk.list_entries();
+
+    eprintln!("filepath parent is {:?}", filepath.parent().unwrap());
+    eprintln!("filepath stem is {:?}", filepath.file_stem().unwrap());
+
+    // SG03_03.SCX
+    mpk.extract_entry(filepath, "sg03_03.scx").unwrap();
 }
