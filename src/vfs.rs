@@ -22,7 +22,8 @@ fn read_cstring<R: Read + Seek>(reader: &mut R) -> Result<String, Box<dyn Error>
 }
 
 #[derive(Debug)]
-pub struct MpkArchive {
+pub struct MpkArchive<R: Read + Seek> {
+    reader: R,
     version: MpkVersion,
     entry_count: u64,
     entries: Vec<MpkEntry>,
@@ -44,12 +45,12 @@ struct MpkEntry {
     len_compressed: u64,
 }
 
-impl MpkArchive {
+impl<R: Read + Seek> MpkArchive<R> {
     pub const SIGNATURE: &'static [u8] = b"MPK\0";
     pub const FILE_HEADER_LENGTH: u64 = 256;
 
-    pub fn from_mpk<R: Read + Seek>(mpk_reader: &mut R) -> Result<Self, Box<dyn Error>> {
-        let signature = read_signature(mpk_reader)?;
+    pub fn from_mpk(mut mpk_reader: R) -> Result<Self, Box<dyn Error>> {
+        let signature = read_signature(&mut mpk_reader)?;
         if signature != Self::SIGNATURE {
             return Err(format!("invalid file signature '{:?}' for MPK archive", signature).into());
         }
@@ -75,12 +76,13 @@ impl MpkArchive {
             let header_entry_offset = first_entry_offset + (idx * Self::FILE_HEADER_LENGTH);
             entries.push(MpkEntry::read_at_offset(
                 header_entry_offset,
-                mpk_reader,
+                &mut mpk_reader,
                 mpk_version.is_old_format,
             )?);
         }
 
         Ok(MpkArchive {
+            reader: mpk_reader,
             version: mpk_version,
             entry_count,
             entries,
@@ -146,9 +148,9 @@ impl MpkEntry {
         Ok(MpkEntry {
             id,
             offset,
+            name,
             len: len_uncompressed,
             len_compressed,
-            name,
         })
     }
 
