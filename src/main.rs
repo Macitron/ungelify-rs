@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use ungelify::vfs::MpkArchive;
+use ungelify::vfs::mpk::MpkArchive;
 
 fn main() {
     let filename: String = "resources/script.mpk".to_string();
