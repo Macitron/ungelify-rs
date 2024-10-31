@@ -17,7 +17,7 @@ fn read_cstring<R: Read + Seek>(reader: &mut R) -> Result<String, Box<dyn Error>
     loop {
         reader.read_exact(&mut c)?;
         if &c == b"\0" {
-            break String::from_utf8(chars).map_err(|e| e.into());
+            break String::from_utf8(chars).map_err(Into::into);
         }
         chars.extend_from_slice(&c);
     }
@@ -54,7 +54,7 @@ impl<R: Read + Seek> MpkArchive<R> {
     pub fn from_mpk(mut mpk_reader: R) -> Result<Self, Box<dyn Error>> {
         let signature = read_signature(&mut mpk_reader)?;
         if signature != Self::SIGNATURE {
-            return Err(format!("invalid file signature '{:?}' for MPK archive", signature).into());
+            return Err(format!("invalid file signature '{signature:?}' for MPK archive").into());
         }
 
         let ver_minor = mpk_reader.read_u16::<LE>()?;
@@ -62,7 +62,7 @@ impl<R: Read + Seek> MpkArchive<R> {
         let mpk_version = MpkVersion::build(ver_major, ver_minor)?;
 
         let entry_count = if mpk_version.is_old_format {
-            mpk_reader.read_u32::<LE>()? as u64
+            u64::from(mpk_reader.read_u32::<LE>()?)
         } else {
             mpk_reader.read_u64::<LE>()?
         };
@@ -73,7 +73,7 @@ impl<R: Read + Seek> MpkArchive<R> {
             0x44
         };
 
-        let mut entries = Vec::with_capacity(entry_count as usize);
+        let mut entries = Vec::with_capacity(usize::try_from(entry_count)?);
         for idx in 0..entry_count {
             let header_entry_offset = first_entry_offset + (idx * Self::FILE_HEADER_LENGTH);
             entries.push(MpkEntry::read_at_offset(
@@ -83,7 +83,7 @@ impl<R: Read + Seek> MpkArchive<R> {
             )?);
         }
 
-        Ok(MpkArchive {
+        Ok(Self {
             reader: mpk_reader,
             version: mpk_version,
             entry_count,
@@ -127,9 +127,9 @@ impl<R: Read + Seek> MpkArchive<R> {
             .open(&entry_path)?;
         let mut entry_writer = BufWriter::new(entry_file);
 
-        let mut buffer = vec![0u8; 1024 * 16];  // good enough. might profile later
+        let mut buffer = vec![0u8; 1024 * 16]; // good enough. might profile later
         let mut total_written = 0;
-        let entry_len = entry.len as usize;
+        let entry_len = usize::try_from(entry.len)?;
 
         self.reader.seek(SeekFrom::Start(entry.offset))?;
         while total_written < entry_len {
@@ -145,15 +145,15 @@ impl<R: Read + Seek> MpkArchive<R> {
         if total_written == entry_len {
             Ok(())
         } else {
-            Err(format!("failed to extract entry file '{}'", entry_name).into())
+            Err(format!("failed to extract entry file '{entry_name}'").into())
         }
     }
 
     pub fn get_entry(&self, entry_name_or_id: &str) -> Option<&MpkEntry> {
-        match entry_name_or_id.parse::<u32>() {
-            Ok(id) => self.get_entry_by_id(id),
-            Err(_) => self.get_entry_by_name(entry_name_or_id),
-        }
+        entry_name_or_id.parse::<u32>().map_or_else(
+            |_| self.get_entry_by_name(entry_name_or_id),
+            |id| self.get_entry_by_id(id),
+        )
     }
 
     fn get_entry_by_id(&self, id: u32) -> Option<&MpkEntry> {
@@ -172,7 +172,7 @@ impl MpkVersion {
         if major != 1 && major != 2 {
             Err(format!("unsupported MPK archive version {major}"))
         } else {
-            Ok(MpkVersion {
+            Ok(Self {
                 major,
                 minor,
                 is_old_format: major == 1,
@@ -182,6 +182,7 @@ impl MpkVersion {
 }
 
 impl MpkEntry {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -190,7 +191,7 @@ impl MpkEntry {
         offset: u64,
         mpk_reader: &mut R,
         is_old_format: bool,
-    ) -> Result<MpkEntry, Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error>> {
         mpk_reader.seek(SeekFrom::Start(offset))?;
 
         let id = mpk_reader.read_u32::<LE>()?;
@@ -199,9 +200,9 @@ impl MpkEntry {
         let len_uncompressed: u64;
 
         if is_old_format {
-            offset = mpk_reader.read_u32::<LE>()? as u64;
-            len_compressed = mpk_reader.read_u32::<LE>()? as u64;
-            len_uncompressed = mpk_reader.read_u32::<LE>()? as u64;
+            offset = u64::from(mpk_reader.read_u32::<LE>()?);
+            len_compressed = u64::from(mpk_reader.read_u32::<LE>()?);
+            len_uncompressed = u64::from(mpk_reader.read_u32::<LE>()?);
             mpk_reader.seek(SeekFrom::Current(16))?;
         } else {
             offset = mpk_reader.read_u64::<LE>()?;
@@ -211,7 +212,7 @@ impl MpkEntry {
 
         let name = read_cstring(mpk_reader)?;
 
-        Ok(MpkEntry {
+        Ok(Self {
             id,
             offset,
             name,
@@ -220,7 +221,7 @@ impl MpkEntry {
         })
     }
 
-    fn is_compressed(&self) -> bool {
+    const fn is_compressed(&self) -> bool {
         self.len == self.len_compressed
     }
 }
