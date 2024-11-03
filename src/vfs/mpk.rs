@@ -231,6 +231,8 @@ impl MpkEntry {
         writer: &mut W,
         is_old_format: bool,
     ) -> Result<(), Box<dyn Error>> {
+        let header_offset = writer.stream_position()?;
+
         writer.write_u32::<LE>(self.id)?;
 
         if is_old_format {
@@ -246,7 +248,8 @@ impl MpkEntry {
 
         vfs::write_cstring(writer, self.name())?;
 
-        let padding_len = Self::HEADER_LENGTH - writer.stream_position()?;
+        let bytes_written = writer.stream_position()? - header_offset;
+        let padding_len = Self::HEADER_LENGTH - bytes_written;
         vfs::write_padding(writer, usize::try_from(padding_len)?)?;
 
         Ok(())
@@ -254,9 +257,12 @@ impl MpkEntry {
 
     // consumes this entry and writes a new one at the offset that `writer` is currently at upon
     // invocation.
+    //
     // if `is_replacing` is true, then all the contents of `reader` will be written to `writer` and
     // treated as the new contents of the entry; otherwise, `reader` is treated as the existing MPK
     // archive and the existing contents of the entry will simply be copied over.
+    //
+    // block alignment is NOT performed by this function and must be ensured by the caller.
     fn write_new<R: Read + Seek, W: Write + Seek>(
         self,
         reader: &mut R,
@@ -266,20 +272,11 @@ impl MpkEntry {
         let new_offset = writer.stream_position()?;
 
         let len_written = if is_replacing {
+            io::copy(reader, writer)?
+        } else {
             reader.seek(SeekFrom::Start(self.offset))?;
             vfs::copy_n(reader, writer, usize::try_from(self.len_compressed)?)?
-        } else {
-            io::copy(reader, writer)?
         };
-
-        // pad to align on 2048-byte blocks
-        if len_written % 2048 != 0 || len_written == 0 {
-            // number of blocks it would take to fit `len_written`
-            // (round up to nearest multiple of 2048)
-            let num_blocks = len_written / 2048 + 1;
-            let len_with_padding = num_blocks * 2048;
-            vfs::write_padding(writer, usize::try_from(len_with_padding - len_written)?)?;
-        }
 
         Ok(Self {
             offset: new_offset,
