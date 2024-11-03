@@ -20,6 +20,27 @@ pub struct MpkArchive {
 impl MpkArchive {
     pub const SIGNATURE: &'static [u8] = b"MPK\0";
 
+    // the amount of padding needed between the end of the header info (signature, version, header
+    // count) and the start of the entry headers. the entry header section always starts at either
+    // 0x40 or 0x44 (for v1 or v2, respectively), so we can calculate how much padding is needed to
+    // get there:
+    //
+    // old                          new
+    //   4 bytes signature            4 bytes signature
+    // + 2 bytes minor ver          + 2 bytes minor ver
+    // + 2 bytes major ver          + 2 bytes major ver
+    // + 4 bytes entry count        + 8 bytes entry count
+    // = 12 bytes                   = 16 bytes
+    //
+    // first entry offset = 0x40 = 64 if old
+    //                    = 0x44 = 68 if new
+    //
+    // padding = 64 - 12 = 52 if old
+    //         = 68 - 16 = 52 if new
+    //
+    // so we always need 52 bytes of 0 padding.
+    const HEADER_PADDING: [u8; 52] = [0u8; 52];
+
     fn get_entry<'a>(entries: &'a [MpkEntry], entry_name_or_id: &str) -> Option<&'a MpkEntry> {
         entry_name_or_id.parse::<u32>().map_or_else(
             |_| Self::get_entry_by_name(entries, entry_name_or_id),
@@ -36,12 +57,31 @@ impl MpkArchive {
             .iter()
             .find(|e| e.name.to_lowercase() == entry_name.to_lowercase())
     }
+
+    // if `entry.len_compressed`, i.e. the number of bytes written to the archive, is not aligned on
+    // a block of 2048, write padding until it is
+    fn write_entry_alignment_padding<W: Write>(
+        writer: &mut W,
+        len_written: u64,
+    ) -> Result<(), Box<dyn Error>> {
+        if len_written % 2048 == 0 && len_written != 0 {
+            // already aligned, nothing to do
+            return Ok(());
+        }
+
+        // number of blocks it would take to fit `len_written`
+        // (round up to nearest multiple of 2048)
+        let num_blocks = len_written / 2048 + 1;
+        let len_with_padding = num_blocks * 2048;
+        vfs::write_padding(writer, usize::try_from(len_with_padding - len_written)?)?;
+
+        Ok(())
+    }
 }
 
 impl Archive for MpkArchive {
     fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
-        let file = OpenOptions::new().read(true).open(&path)?;
-        let mut reader = BufReader::new(file);
+        let mut reader = BufReader::new(File::open(&path)?);
 
         let signature = vfs::read_signature(&mut reader)?;
         if signature != Self::SIGNATURE {
@@ -79,14 +119,15 @@ impl Archive for MpkArchive {
     fn list_entries(&self) {
         // maybe want to calculate the actual longest ID length, longest filename length rather than
         // using magic constants
-        println!("\n{:<5} {:<20} {}", "ID", "Name", "Size");
+        println!("\n{:<5} {:<20} {:<10} {}", "ID", "Name", "Size", "Offset");
 
         for entry in &self.entries {
             println!(
-                "{:<5} {:<20} {}",
+                "{:<5} {:<20} {:<10} {:#x}",
                 entry.id,
                 entry.name,
-                bytesize::to_string(entry.len, true)
+                bytesize::to_string(entry.len, true),
+                entry.offset
             );
         }
     }
@@ -118,6 +159,90 @@ impl Archive for MpkArchive {
         }
 
         Ok(())
+    }
+
+    // look into `glob` crate for replacing multiple files
+
+    // TODO refactor to accept an array/iterator of paths to replace
+    fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>> {
+        let file_name = path.as_ref().file_name().unwrap().to_str().unwrap();
+        if !self.entries.iter().any(|e| e.name == file_name) {
+            return Err(format!("entry '{file_name}' does not exist").into());
+        }
+
+        let new_file = tempfile::tempfile()?;
+        let mut temp_writer = BufWriter::new(new_file);
+
+        // look into using the 'bincode' crate for directly reading/writing structs
+        temp_writer.write_all(Self::SIGNATURE)?;
+        temp_writer.write_u16::<LE>(self.version.minor)?;
+        temp_writer.write_u16::<LE>(self.version.major)?;
+
+        if self.version.is_old_format {
+            temp_writer.write_u32::<LE>(u32::try_from(self.entry_count)?)?;
+        } else {
+            temp_writer.write_u64::<LE>(self.entry_count)?;
+        }
+
+        temp_writer.write_all(&Self::HEADER_PADDING)?;
+
+        // write out all the entries in the data portion of the archive, building up the new Vec of
+        // entries as we go, then afterwards come back and write the entry headers
+        let first_entry_offset = self.entries[0].offset;
+        let padding_length = first_entry_offset - temp_writer.stream_position()?;
+        vfs::write_padding(&mut temp_writer, usize::try_from(padding_length)?)?;
+
+        let mut new_entries = Vec::with_capacity(usize::try_from(self.entry_count)?);
+        let mut entry_iter = self.entries.into_iter().peekable();
+        // for entry in self.entries {
+        while let Some(entry) = entry_iter.next() {
+            let is_replacing = entry.name.to_lowercase() == file_name.to_lowercase();
+            let reader = if is_replacing {
+                let entry_file = File::open(&path)?;
+                &mut BufReader::new(entry_file)
+            } else {
+                &mut *self.reader.borrow_mut()
+            };
+
+            let new_entry = entry.write_new(reader, &mut temp_writer, is_replacing)?;
+            let len_written = new_entry.len_compressed;
+            new_entries.push(new_entry);
+
+            // last file in the archive does not have to be aligned on a 2048-byte block
+            // ... for some reason
+            if entry_iter.peek().is_some() {
+                Self::write_entry_alignment_padding(&mut temp_writer, len_written)?;
+            }
+        }
+
+        // maybe refactor so we create the entries vector first with all the metadata and then write
+        // the entry data after?
+        // leads to kind of a chicken-or-egg problem where the offsets are ill-defined til they're
+        // actually written. maybe we can get clever with it and calculate the length + number of
+        // blocks ahead of time, but that might not play well with compression idk
+        temp_writer.seek(SeekFrom::Start(self.version.first_entry_header_offset()))?;
+        for entry in &new_entries {
+            entry.write_header(&mut temp_writer, self.version.is_old_format)?;
+        }
+
+        // overwrite contents of the MPK with the temp file
+        temp_writer.flush()?;
+        let mut temp_reader = BufReader::new(temp_writer.into_inner()?);
+        temp_reader.seek(SeekFrom::Start(0))?;
+
+        let mpk_writer = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.file_path)?;
+        let mut mpk_writer = BufWriter::new(mpk_writer);
+
+        io::copy(&mut temp_reader, &mut mpk_writer)?;
+
+        Ok(Self {
+            reader: RefCell::new(BufReader::new(File::open(&self.file_path)?)),
+            entries: new_entries,
+            ..self
+        })
     }
 }
 

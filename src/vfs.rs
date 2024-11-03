@@ -14,6 +14,8 @@ pub trait Archive: Sized {
     fn extract_entry(&self, entry_name_or_id: &str) -> Result<(), Box<dyn Error>>;
 
     fn extract_all_entries(&self) -> Result<(), Box<dyn Error>>;
+
+    fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>>;
 }
 
 fn read_signature(reader: &mut impl Read) -> Result<[u8; 4], io::Error> {
