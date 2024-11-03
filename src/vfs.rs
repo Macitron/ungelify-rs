@@ -1,8 +1,9 @@
 pub mod mpk;
 
+use std::cmp::min;
 use std::error::Error;
 use std::io;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub trait Archive: Sized {
@@ -31,4 +32,41 @@ fn read_cstring(reader: &mut impl Read) -> Result<String, Box<dyn Error>> {
         }
         chars.extend_from_slice(&c);
     }
+}
+
+const BUFFER_SIZE: usize = 1024 * 8; // can fine-tune later
+
+// write `padding_length` zero bytes to the writer
+fn write_padding<W: Write>(writer: &mut W, padding_length: usize) -> Result<(), io::Error> {
+    let zero_buffer = [0u8; BUFFER_SIZE];
+    let mut total_written = 0usize;
+
+    while total_written < padding_length {
+        let left_to_write = padding_length - total_written;
+        let current_len = min(left_to_write, zero_buffer.len());
+
+        let bytes_written = writer.write(&zero_buffer[..current_len])?;
+        total_written += bytes_written;
+    }
+
+    Ok(())
+}
+
+// copy `n` bytes from `reader` to `writer`
+// does not flush! (bad roommate)
+fn copy_n(reader: &mut impl Read, writer: &mut impl Write, n: usize) -> Result<u64, io::Error> {
+    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut total_written = 0;
+
+    while total_written < n {
+        let bytes_remaining = n - total_written;
+        let to_read = min(bytes_remaining, buffer.len());
+
+        let bytes_read = reader.read(&mut buffer[..to_read])?;
+        writer.write_all(&buffer[..bytes_read])?;
+
+        total_written += bytes_read;
+    }
+
+    Ok(total_written as u64)
 }

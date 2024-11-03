@@ -6,7 +6,7 @@ use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::{cmp, fs};
+use std::{fs, io};
 
 #[derive(Debug)]
 pub struct MpkArchive {
@@ -59,11 +59,10 @@ impl Archive for MpkArchive {
             reader.read_u64::<LE>()?
         };
 
-        let first_entry_offset = if version.is_old_format { 0x40 } else { 0x44 };
-
         let mut entries = Vec::with_capacity(usize::try_from(entry_count)?);
         for idx in 0..entry_count {
-            let entry_header_offset = first_entry_offset + (idx * Self::FILE_HEADER_LENGTH);
+            let entry_header_offset =
+                version.first_entry_header_offset() + (idx * Self::FILE_HEADER_LENGTH);
             let entry =
                 MpkEntry::read_at_offset(entry_header_offset, &mut reader, version.is_old_format)?;
             entries.push(entry);
@@ -128,6 +127,28 @@ struct MpkVersion {
     major: u16,
     minor: u16,
     is_old_format: bool,
+}
+
+impl MpkVersion {
+    fn build(major: u16, minor: u16) -> Result<Self, String> {
+        if major != 1 && major != 2 {
+            Err(format!("unsupported MPK archive version {major}"))
+        } else {
+            Ok(Self {
+                major,
+                minor,
+                is_old_format: major == 1,
+            })
+        }
+    }
+
+    const fn first_entry_header_offset(&self) -> u64 {
+        if self.is_old_format {
+            0x40
+        } else {
+            0x44
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -196,39 +217,47 @@ impl MpkEntry {
             .open(&entry_path)?;
         let mut writer = BufWriter::new(entry_file);
 
-        let mut buffer = vec![0u8; 1024 * 16]; // good enough. might profile later
-        let mut total_written = 0;
-        let entry_len = usize::try_from(self.len)?;
-
         reader.seek(SeekFrom::Start(self.offset))?;
-        while total_written < entry_len {
-            let bytes_remaining = entry_len - total_written;
-            let to_read = cmp::min(bytes_remaining, buffer.len());
-            let bytes_read = reader.read(&mut buffer[..to_read])?;
-
-            let bytes_written = writer.write(&buffer[..bytes_read])?;
-            total_written += bytes_written;
-        }
+        vfs::copy_n(reader, &mut writer, usize::try_from(self.len)?)?;
         writer.flush()?;
 
-        if total_written == entry_len {
-            Ok(())
-        } else {
-            Err(format!("failed to extract entry file '{}'", self.name).into())
-        }
+        Ok(())
     }
-}
 
-impl MpkVersion {
-    fn build(major: u16, minor: u16) -> Result<Self, String> {
-        if major != 1 && major != 2 {
-            Err(format!("unsupported MPK archive version {major}"))
+    // consumes this entry and writes a new one at the offset that `writer` is currently at upon
+    // invocation.
+    // if `is_replacing` is true, then all the contents of `reader` will be written to `writer` and
+    // treated as the new contents of the entry; otherwise, `reader` is treated as the existing MPK
+    // archive and the existing contents of the entry will simply be copied over.
+    fn write_new<R: Read + Seek, W: Write + Seek>(
+        self,
+        reader: &mut R,
+        writer: &mut W,
+        is_replacing: bool,
+    ) -> Result<Self, Box<dyn Error>> {
+        let new_offset = writer.stream_position()?;
+
+        let len_written = if is_replacing {
+            reader.seek(SeekFrom::Start(self.offset))?;
+            vfs::copy_n(reader, writer, usize::try_from(self.len_compressed)?)?
         } else {
-            Ok(Self {
-                major,
-                minor,
-                is_old_format: major == 1,
-            })
+            io::copy(reader, writer)?
+        };
+
+        // pad to align on 2048-byte blocks
+        if len_written % 2048 != 0 || len_written == 0 {
+            // number of blocks it would take to fit `len_written`
+            // (round up to nearest multiple of 2048)
+            let num_blocks = len_written / 2048 + 1;
+            let len_with_padding = num_blocks * 2048;
+            vfs::write_padding(writer, usize::try_from(len_with_padding - len_written)?)?;
         }
+
+        Ok(Self {
+            offset: new_offset,
+            len: len_written, // eventually rework for compressed entries
+            len_compressed: len_written,
+            ..self
+        })
     }
 }
