@@ -34,6 +34,13 @@ fn read_cstring(reader: &mut impl Read) -> Result<String, Box<dyn Error>> {
     }
 }
 
+fn write_cstring(writer: &mut impl Write, string: &str) -> Result<(), Box<dyn Error>> {
+    writer.write_all(string.as_bytes())?;
+    writer.write_all(b"\0")?;
+
+    Ok(())
+}
+
 const BUFFER_SIZE: usize = 1024 * 8; // can fine-tune later
 
 // write `padding_length` zero bytes to the writer

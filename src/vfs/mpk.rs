@@ -1,6 +1,6 @@
 use crate::vfs;
 use crate::vfs::Archive;
-use byteorder::{ReadBytesExt, LE};
+use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
@@ -19,7 +19,6 @@ pub struct MpkArchive {
 
 impl MpkArchive {
     pub const SIGNATURE: &'static [u8] = b"MPK\0";
-    pub const FILE_HEADER_LENGTH: u64 = 256;
 
     fn get_entry<'a>(entries: &'a [MpkEntry], entry_name_or_id: &str) -> Option<&'a MpkEntry> {
         entry_name_or_id.parse::<u32>().map_or_else(
@@ -62,7 +61,7 @@ impl Archive for MpkArchive {
         let mut entries = Vec::with_capacity(usize::try_from(entry_count)?);
         for idx in 0..entry_count {
             let entry_header_offset =
-                version.first_entry_header_offset() + (idx * Self::FILE_HEADER_LENGTH);
+                version.first_entry_header_offset() + (idx * MpkEntry::HEADER_LENGTH);
             let entry =
                 MpkEntry::read_at_offset(entry_header_offset, &mut reader, version.is_old_format)?;
             entries.push(entry);
@@ -161,11 +160,14 @@ pub struct MpkEntry {
 }
 
 impl MpkEntry {
+    const HEADER_LENGTH: u64 = 256;
+
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    // TODO add that off-by-one check that dex mentioned (check if offset is garbo)
     fn read_at_offset<R: Read + Seek>(
         offset: u64,
         mpk_reader: &mut R,
@@ -220,6 +222,32 @@ impl MpkEntry {
         reader.seek(SeekFrom::Start(self.offset))?;
         vfs::copy_n(reader, &mut writer, usize::try_from(self.len)?)?;
         writer.flush()?;
+
+        Ok(())
+    }
+
+    fn write_header<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        is_old_format: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        writer.write_u32::<LE>(self.id)?;
+
+        if is_old_format {
+            writer.write_u32::<LE>(u32::try_from(self.offset)?)?;
+            writer.write_u32::<LE>(u32::try_from(self.len_compressed)?)?;
+            writer.write_u32::<LE>(u32::try_from(self.len)?)?;
+            writer.seek(SeekFrom::Current(16))?;
+        } else {
+            writer.write_u64::<LE>(self.offset)?;
+            writer.write_u64::<LE>(self.len_compressed)?;
+            writer.write_u64::<LE>(self.len)?;
+        }
+
+        vfs::write_cstring(writer, self.name())?;
+
+        let padding_len = Self::HEADER_LENGTH - writer.stream_position()?;
+        vfs::write_padding(writer, usize::try_from(padding_len)?)?;
 
         Ok(())
     }
