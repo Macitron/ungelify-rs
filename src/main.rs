@@ -1,12 +1,11 @@
-use ungelify::vfs::mpk::MpkArchive;
-use ungelify::vfs::Archive;
+use clap::Parser;
+use ungelify::cli;
+use ungelify::cli::Cli;
 
 fn main() {
-    let filename: String = "resources/script.mpk".to_string();
-    let mpk: MpkArchive = Archive::from_file(filename).unwrap();
+    let args = Cli::parse();
 
-    mpk.list_entries();
-
-    mpk.extract_entry("sg03_03.scx").unwrap();
-    mpk.extract_all_entries().unwrap();
+    if let Err(e) = cli::run(args) {
+        eprintln!("an error occurred: {}", e);
+    }
 }
