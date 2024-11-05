@@ -1,6 +1,7 @@
 use clap::Parser;
-use ungelify::cli;
-use ungelify::cli::Cli;
+use cli::Cli;
+
+mod cli;
 
 fn main() {
     let args = Cli::parse();

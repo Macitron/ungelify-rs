@@ -1,8 +1,8 @@
-use crate::vfs::mpk::MpkArchive;
-use crate::vfs::Archive;
 use clap::{Parser, Subcommand};
 use std::error::Error;
 use std::path::PathBuf;
+use ungelify::vfs::mpk::MagesArchive;
+use ungelify::vfs::Archive;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,11 +46,11 @@ pub enum Commands {
 pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Commands::List { archive } => {
-            let archive: MpkArchive = Archive::from_file(archive)?;
+            let archive: MagesArchive = Archive::from_file(archive)?;
             archive.list_entries();
         }
         Commands::Extract { archive, entry } => {
-            let archive: MpkArchive = Archive::from_file(archive)?;
+            let archive: MagesArchive = Archive::from_file(archive)?;
             match entry {
                 Some(entry) => {
                     archive.extract_entry(&entry)?;
@@ -64,7 +64,7 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             archive,
             entry_file,
         } => {
-            let archive: MpkArchive = Archive::from_file(archive)?;
+            let archive: MagesArchive = Archive::from_file(archive)?;
             archive.replace_entry(entry_file)?;
         }
     }

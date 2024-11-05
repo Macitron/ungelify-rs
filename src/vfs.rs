@@ -1,10 +1,10 @@
-pub mod mpk;
-
 use std::cmp::min;
 use std::error::Error;
 use std::io;
 use std::io::{Read, Write};
 use std::path::Path;
+
+pub mod mpk;
 
 pub trait Archive: Sized {
     fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>>;

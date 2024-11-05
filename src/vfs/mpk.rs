@@ -9,15 +9,15 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 #[derive(Debug)]
-pub struct MpkArchive {
+pub struct MagesArchive {
     reader: RefCell<BufReader<File>>,
     file_path: PathBuf,
     version: MpkVersion,
     entry_count: u64,
-    entries: Vec<MpkEntry>,
+    entries: Vec<MagesEntry>,
 }
 
-impl MpkArchive {
+impl MagesArchive {
     pub const SIGNATURE: &'static [u8] = b"MPK\0";
 
     // the amount of padding needed between the end of the header info (signature, version, header
@@ -41,18 +41,21 @@ impl MpkArchive {
     // so we always need 52 bytes of 0 padding.
     const HEADER_PADDING: [u8; 52] = [0u8; 52];
 
-    fn get_entry<'a>(entries: &'a [MpkEntry], entry_name_or_id: &str) -> Option<&'a MpkEntry> {
+    fn get_entry<'a>(entries: &'a [MagesEntry], entry_name_or_id: &str) -> Option<&'a MagesEntry> {
         entry_name_or_id.parse::<u32>().map_or_else(
             |_| Self::get_entry_by_name(entries, entry_name_or_id),
             |id| Self::get_entry_by_id(entries, id),
         )
     }
 
-    fn get_entry_by_id(entries: &[MpkEntry], entry_id: u32) -> Option<&MpkEntry> {
+    fn get_entry_by_id(entries: &[MagesEntry], entry_id: u32) -> Option<&MagesEntry> {
         entries.iter().find(|e| e.id == entry_id)
     }
 
-    fn get_entry_by_name<'a>(entries: &'a [MpkEntry], entry_name: &str) -> Option<&'a MpkEntry> {
+    fn get_entry_by_name<'a>(
+        entries: &'a [MagesEntry],
+        entry_name: &str,
+    ) -> Option<&'a MagesEntry> {
         entries
             .iter()
             .find(|e| e.name.to_lowercase() == entry_name.to_lowercase())
@@ -79,7 +82,7 @@ impl MpkArchive {
     }
 }
 
-impl Archive for MpkArchive {
+impl Archive for MagesArchive {
     fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
         let mut reader = BufReader::new(File::open(&path)?);
 
@@ -101,9 +104,12 @@ impl Archive for MpkArchive {
         let mut entries = Vec::with_capacity(usize::try_from(entry_count)?);
         for idx in 0..entry_count {
             let entry_header_offset =
-                version.first_entry_header_offset() + (idx * MpkEntry::HEADER_LENGTH);
-            let entry =
-                MpkEntry::read_at_offset(entry_header_offset, &mut reader, version.is_old_format)?;
+                version.first_entry_header_offset() + (idx * MagesEntry::HEADER_LENGTH);
+            let entry = MagesEntry::read_at_offset(
+                entry_header_offset,
+                &mut reader,
+                version.is_old_format,
+            )?;
             entries.push(entry);
         }
 
@@ -116,6 +122,7 @@ impl Archive for MpkArchive {
         })
     }
 
+    #[allow(clippy::print_literal)] // readability >>>
     fn list_entries(&self) {
         // maybe want to calculate the actual longest ID length, longest filename length rather than
         // using magic constants
@@ -236,6 +243,8 @@ impl Archive for MpkArchive {
             .open(&self.file_path)?;
         let mut mpk_writer = BufWriter::new(mpk_writer);
 
+        // should we just move the temp file to the MPK? but that might have complications with
+        // file permissions
         io::copy(&mut temp_reader, &mut mpk_writer)?;
 
         Ok(Self {
@@ -276,15 +285,16 @@ impl MpkVersion {
 }
 
 #[derive(Debug)]
-pub struct MpkEntry {
+pub struct MagesEntry {
     id: u32,
     offset: u64,
+    // might want to revisit eventually, reading/writing raw bytes as a UTF-8 string seems hairy
     name: String,
     len: u64,
     len_compressed: u64,
 }
 
-impl MpkEntry {
+impl MagesEntry {
     const HEADER_LENGTH: u64 = 256;
 
     #[must_use]
