@@ -4,6 +4,7 @@ use std::io;
 use std::io::{Read, Write};
 use std::path::Path;
 
+pub mod error;
 pub mod mpk;
 
 pub trait Archive: Sized {

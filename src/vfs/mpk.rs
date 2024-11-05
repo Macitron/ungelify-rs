@@ -1,4 +1,5 @@
 use crate::vfs;
+use crate::vfs::error::ArchiveError;
 use crate::vfs::Archive;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use std::cell::RefCell;
@@ -80,6 +81,35 @@ impl MagesArchive {
 
         Ok(())
     }
+
+    // gets the name of the .mpk file without the extension to use as the extraction directory.
+    // if the file does not have an extension (or, more specifically, the archive's `file_stem()` is
+    // the same as the archive), then the directory is the archive's name with a `.d` appended to
+    // it.
+    // e.g., '../mpk/script.mpk' -> '../mpk/script'
+    //       './archive_no_ext' -> './archive_no_ext.d'
+    fn archive_file_dir(&self) -> Result<PathBuf, ArchiveError> {
+        let parent_dir = self
+            .file_path
+            .parent()
+            .ok_or("unable to get parent directory of archive")?;
+        let archive_stem = self
+            .file_path
+            .file_stem()
+            .ok_or("unable to get archive file stem")?;
+
+        let mut archive_dir = parent_dir.join(archive_stem);
+        if self.file_path == archive_dir {
+            let mut archive_d = self
+                .file_path
+                .file_name()
+                .ok_or("unable to get archive file name")?.to_os_string();
+            archive_d.push(".d");
+            archive_dir = parent_dir.join(archive_d);
+        }
+
+        Ok(archive_dir)
+    }
 }
 
 impl Archive for MagesArchive {
@@ -140,13 +170,7 @@ impl Archive for MagesArchive {
     }
 
     fn extract_entry(&self, entry_name_or_id: &str) -> Result<(), Box<dyn Error>> {
-        // create directory with the name of the file minus the extension
-        // e.g. 'script.mpk' -> 'script/'
-        let mpk_dir = self
-            .file_path
-            .parent()
-            .unwrap()
-            .join(self.file_path.file_stem().unwrap());
+        let mpk_dir = self.archive_file_dir()?;
         fs::create_dir_all(&mpk_dir)?;
 
         let entry = Self::get_entry(&self.entries, entry_name_or_id).unwrap();
@@ -154,11 +178,7 @@ impl Archive for MagesArchive {
     }
 
     fn extract_all_entries(&self) -> Result<(), Box<(dyn Error)>> {
-        let mpk_dir = self
-            .file_path
-            .parent()
-            .unwrap()
-            .join(self.file_path.file_stem().unwrap());
+        let mpk_dir = self.archive_file_dir()?;
         fs::create_dir_all(&mpk_dir)?;
 
         for entry in &self.entries {
