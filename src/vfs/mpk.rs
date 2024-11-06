@@ -7,9 +7,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
+use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 #[derive(Debug)]
 pub struct MagesArchive {
@@ -84,38 +84,6 @@ impl MagesArchive {
 
         Ok(())
     }
-
-    // gets the name of the .mpk file without the extension to use as the extraction directory.
-    // if the file does not have an extension (or, more specifically, the archive's `file_stem()` is
-    // the same as the archive), then the directory is the archive's name with a `.d` appended to
-    // it.
-    // e.g., '../mpk/script.mpk' -> '../mpk/script'
-    //       './archive_no_ext' -> './archive_no_ext.d'
-    fn archive_file_dir(&self) -> Result<PathBuf, ArchiveError> {
-        // TODO rename to archive_dir, make a fn create_archive_dir with a more descriptive error
-        // message
-        let parent_dir = self
-            .file_path
-            .parent()
-            .ok_or("unable to get parent directory of archive")?;
-        let archive_stem = self
-            .file_path
-            .file_stem()
-            .ok_or("unable to get archive file stem")?;
-
-        let mut archive_dir = parent_dir.join(archive_stem);
-        if self.file_path == archive_dir {
-            let mut archive_d = self
-                .file_path
-                .file_name()
-                .ok_or("unable to get archive file name")?
-                .to_os_string();
-            archive_d.push(".d");
-            archive_dir = parent_dir.join(archive_d);
-        }
-
-        Ok(archive_dir)
-    }
 }
 
 impl Archive for MagesArchive {
@@ -179,18 +147,28 @@ impl Archive for MagesArchive {
         }
     }
 
-    fn extract_entry(&self, entry_name_or_id: &str) -> Result<(), Box<dyn Error>> {
-        let mpk_dir = self.archive_file_dir()?;
-        fs::create_dir_all(&mpk_dir)?;
+    fn extract_entries(&self, entry_names_or_ids: &[String]) -> Result<(), Box<dyn Error>> {
+        let mpk_dir = vfs::create_archive_dir(&self.file_path)?;
+        let mut entries_to_extract = vec![];
+        for identifier in entry_names_or_ids {
+            let found_entry = match identifier.parse::<u32>() {
+                Ok(id) => Self::get_entry_by_id(&self.entries, id)
+                    .ok_or_else(|| format!("entry with ID {id} not found in archive"))?,
+                Err(_) => Self::get_entry_by_name(&self.entries, &self.entry_name_map, identifier)
+                    .ok_or_else(|| format!("entry '{identifier}' not found in archive"))?,
+            };
+            entries_to_extract.push(found_entry);
+        }
 
-        let entry = self.get_entry(entry_name_or_id).unwrap();
-        entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)
+        for entry in entries_to_extract {
+            entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)?;
+        }
+
+        Ok(())
     }
 
     fn extract_all_entries(&self) -> Result<(), Box<(dyn Error)>> {
-        let mpk_dir = self.archive_file_dir()?;
-        fs::create_dir_all(&mpk_dir)?;
-
+        let mpk_dir = vfs::create_archive_dir(&self.file_path)?;
         for entry in self.entries.values() {
             entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)?;
         }
@@ -295,9 +273,9 @@ struct MpkVersion {
 }
 
 impl MpkVersion {
-    fn build(major: u16, minor: u16) -> Result<Self, String> {
+    fn build(major: u16, minor: u16) -> Result<Self, ArchiveError> {
         if major != 1 && major != 2 {
-            Err(format!("unsupported MPK archive version {major}"))
+            Err(format!("unsupported MPK archive version {major}").into())
         } else {
             Ok(Self {
                 major,
@@ -367,10 +345,6 @@ impl MagesEntry {
             len: len_uncompressed,
             len_compressed,
         })
-    }
-
-    const fn is_compressed(&self) -> bool {
-        self.len == self.len_compressed
     }
 
     fn extract<R: Read + Seek, P: AsRef<Path>>(

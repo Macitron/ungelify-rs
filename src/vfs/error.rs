@@ -10,9 +10,9 @@ impl Display for ArchiveError {
     }
 }
 
-impl From<&str> for ArchiveError {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
+impl<S: AsRef<str>> From<S> for ArchiveError {
+    fn from(value: S) -> Self {
+        Self(value.as_ref().to_string())
     }
 }
 

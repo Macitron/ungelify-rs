@@ -31,7 +31,7 @@ pub enum Commands {
         #[arg(
             help = "The name or ID of the file to extract\nIf empty, the whole archive is extracted"
         )]
-        entry: Option<String>,
+        entries: Option<Vec<String>>,
     },
     #[command(about = "Repack an archive with a modified file")]
     #[command(arg_required_else_help = true, aliases = ["r", "re"])]
@@ -49,11 +49,11 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             let archive: MagesArchive = Archive::from_file(archive)?;
             archive.list_entries();
         }
-        Commands::Extract { archive, entry } => {
+        Commands::Extract { archive, entries } => {
             let archive: MagesArchive = Archive::from_file(archive)?;
-            match entry {
-                Some(entry) => {
-                    archive.extract_entry(&entry)?;
+            match entries {
+                Some(list) => {
+                    archive.extract_entries(&list)?;
                 }
                 None => {
                     archive.extract_all_entries()?;

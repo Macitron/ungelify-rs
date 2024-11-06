@@ -1,8 +1,9 @@
+use crate::vfs::error::ArchiveError;
 use std::cmp::min;
 use std::error::Error;
-use std::io;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 pub mod error;
 pub mod mpk;
@@ -12,11 +13,42 @@ pub trait Archive: Sized {
 
     fn list_entries(&self);
 
-    fn extract_entry(&self, entry_name_or_id: &str) -> Result<(), Box<dyn Error>>;
+    fn extract_entries(&self, entry_names_or_ids: &[String]) -> Result<(), Box<dyn Error>>;
 
     fn extract_all_entries(&self) -> Result<(), Box<dyn Error>>;
 
     fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>>;
+}
+
+// gets the name of the archive file without the extension to use as the extraction directory.
+// if the file does not have an extension (or, more specifically, the archive's `file_stem()` is
+// the same as the archive), then the directory is the archive's name with a `.d` appended to
+// it.
+// e.g., '../mpk/script.mpk' -> '../mpk/script'
+//       './archive_no_ext' -> './archive_no_ext.d'
+fn create_archive_dir(archive_path: &Path) -> Result<PathBuf, ArchiveError> {
+    let parent_dir = archive_path
+        .parent()
+        .ok_or("unable to get parent directory of archive")?;
+    let archive_stem = archive_path
+        .file_stem()
+        .ok_or("unable to get archive file stem")?;
+
+    let mut archive_dir = parent_dir.join(archive_stem);
+    if archive_path == archive_dir {
+        let mut archive_d = archive_path
+            .file_name()
+            .ok_or("unable to get archive file name")?
+            .to_os_string();
+        archive_d.push(".d");
+        archive_dir = parent_dir.join(archive_d);
+    }
+
+    if let Err(e) = fs::create_dir_all(&archive_dir) {
+        return Err(format!("error creating directory {archive_dir:?} for archive: {e}",).into());
+    }
+
+    Ok(archive_dir)
 }
 
 fn read_signature(reader: &mut impl Read) -> Result<[u8; 4], io::Error> {
