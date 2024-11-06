@@ -2,7 +2,9 @@ use crate::vfs;
 use crate::vfs::error::ArchiveError;
 use crate::vfs::Archive;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use indexmap::IndexMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -15,7 +17,8 @@ pub struct MagesArchive {
     file_path: PathBuf,
     version: MpkVersion,
     entry_count: u64,
-    entries: Vec<MagesEntry>,
+    entries: IndexMap<u32, MagesEntry>,
+    entry_name_map: HashMap<String, u32>,
 }
 
 impl MagesArchive {
@@ -42,24 +45,24 @@ impl MagesArchive {
     // so we always need 52 bytes of 0 padding.
     const HEADER_PADDING: [u8; 52] = [0u8; 52];
 
-    fn get_entry<'a>(entries: &'a [MagesEntry], entry_name_or_id: &str) -> Option<&'a MagesEntry> {
+    fn get_entry(&self, entry_name_or_id: &str) -> Option<&MagesEntry> {
         entry_name_or_id.parse::<u32>().map_or_else(
-            |_| Self::get_entry_by_name(entries, entry_name_or_id),
-            |id| Self::get_entry_by_id(entries, id),
+            |_| Self::get_entry_by_name(&self.entries, &self.entry_name_map, entry_name_or_id),
+            |id| Self::get_entry_by_id(&self.entries, id),
         )
     }
 
-    fn get_entry_by_id(entries: &[MagesEntry], entry_id: u32) -> Option<&MagesEntry> {
-        entries.iter().find(|e| e.id == entry_id)
+    fn get_entry_by_id(entries: &IndexMap<u32, MagesEntry>, entry_id: u32) -> Option<&MagesEntry> {
+        entries.get(&entry_id)
     }
 
     fn get_entry_by_name<'a>(
-        entries: &'a [MagesEntry],
+        entries: &'a IndexMap<u32, MagesEntry>,
+        entry_name_map: &HashMap<String, u32>,
         entry_name: &str,
     ) -> Option<&'a MagesEntry> {
-        entries
-            .iter()
-            .find(|e| e.name.to_lowercase() == entry_name.to_lowercase())
+        let entry_id = entry_name_map.get(entry_name)?;
+        entries.get(entry_id)
     }
 
     // if `entry.len_compressed`, i.e. the number of bytes written to the archive, is not aligned on
@@ -89,6 +92,8 @@ impl MagesArchive {
     // e.g., '../mpk/script.mpk' -> '../mpk/script'
     //       './archive_no_ext' -> './archive_no_ext.d'
     fn archive_file_dir(&self) -> Result<PathBuf, ArchiveError> {
+        // TODO rename to archive_dir, make a fn create_archive_dir with a more descriptive error
+        // message
         let parent_dir = self
             .file_path
             .parent()
@@ -103,7 +108,8 @@ impl MagesArchive {
             let mut archive_d = self
                 .file_path
                 .file_name()
-                .ok_or("unable to get archive file name")?.to_os_string();
+                .ok_or("unable to get archive file name")?
+                .to_os_string();
             archive_d.push(".d");
             archive_dir = parent_dir.join(archive_d);
         }
@@ -131,7 +137,8 @@ impl Archive for MagesArchive {
             reader.read_u64::<LE>()?
         };
 
-        let mut entries = Vec::with_capacity(usize::try_from(entry_count)?);
+        let mut entries = IndexMap::with_capacity(usize::try_from(entry_count)?);
+        let mut entry_name_map = HashMap::with_capacity(entries.capacity());
         for idx in 0..entry_count {
             let entry_header_offset =
                 version.first_entry_header_offset() + (idx * MagesEntry::HEADER_LENGTH);
@@ -140,7 +147,9 @@ impl Archive for MagesArchive {
                 &mut reader,
                 version.is_old_format,
             )?;
-            entries.push(entry);
+            let (entry_id, entry_name) = (entry.id, entry.name.clone());
+            entries.insert(entry_id, entry);
+            entry_name_map.insert(entry_name, entry_id);
         }
 
         Ok(Self {
@@ -149,6 +158,7 @@ impl Archive for MagesArchive {
             version,
             entry_count,
             entries,
+            entry_name_map,
         })
     }
 
@@ -158,7 +168,7 @@ impl Archive for MagesArchive {
         // using magic constants
         println!("\n{:<5} {:<20} {:<10} {}", "ID", "Name", "Size", "Offset");
 
-        for entry in &self.entries {
+        for entry in self.entries.values() {
             println!(
                 "{:<5} {:<20} {:<10} {:#x}",
                 entry.id,
@@ -173,7 +183,7 @@ impl Archive for MagesArchive {
         let mpk_dir = self.archive_file_dir()?;
         fs::create_dir_all(&mpk_dir)?;
 
-        let entry = Self::get_entry(&self.entries, entry_name_or_id).unwrap();
+        let entry = self.get_entry(entry_name_or_id).unwrap();
         entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)
     }
 
@@ -181,7 +191,7 @@ impl Archive for MagesArchive {
         let mpk_dir = self.archive_file_dir()?;
         fs::create_dir_all(&mpk_dir)?;
 
-        for entry in &self.entries {
+        for entry in self.entries.values() {
             entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)?;
         }
 
@@ -193,7 +203,7 @@ impl Archive for MagesArchive {
     // TODO refactor to accept an array/iterator of paths to replace
     fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>> {
         let file_name = path.as_ref().file_name().unwrap().to_str().unwrap();
-        if !self.entries.iter().any(|e| e.name == file_name) {
+        if !self.entry_name_map.contains_key(file_name) {
             return Err(format!("entry '{file_name}' does not exist").into());
         }
 
@@ -219,10 +229,12 @@ impl Archive for MagesArchive {
         let padding_length = first_entry_offset - temp_writer.stream_position()?;
         vfs::write_padding(&mut temp_writer, usize::try_from(padding_length)?)?;
 
-        let mut new_entries = Vec::with_capacity(usize::try_from(self.entry_count)?);
+        // we don't need a new entry-name map because this is only a repacking application.
+        // `entry.write_new()` doesn't change the id OR the name, just the offset and length of data
+        let mut new_entries = IndexMap::with_capacity(usize::try_from(self.entry_count)?);
         let mut entry_iter = self.entries.into_iter().peekable();
         // for entry in self.entries {
-        while let Some(entry) = entry_iter.next() {
+        while let Some((_, entry)) = entry_iter.next() {
             let is_replacing = entry.name.to_lowercase() == file_name.to_lowercase();
             let reader = if is_replacing {
                 let entry_file = File::open(&path)?;
@@ -233,7 +245,7 @@ impl Archive for MagesArchive {
 
             let new_entry = entry.write_new(reader, &mut temp_writer, is_replacing)?;
             let len_written = new_entry.len_compressed;
-            new_entries.push(new_entry);
+            new_entries.insert(new_entry.id, new_entry);
 
             // last file in the archive does not have to be aligned on a 2048-byte block
             // ... for some reason
@@ -248,7 +260,7 @@ impl Archive for MagesArchive {
         // actually written. maybe we can get clever with it and calculate the length + number of
         // blocks ahead of time, but that might not play well with compression idk
         temp_writer.seek(SeekFrom::Start(self.version.first_entry_header_offset()))?;
-        for entry in &new_entries {
+        for entry in new_entries.values() {
             entry.write_header(&mut temp_writer, self.version.is_old_format)?;
         }
 
