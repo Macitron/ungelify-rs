@@ -180,7 +180,7 @@ impl Archive for MagesArchive {
 
     // TODO refactor to accept an array/iterator of paths to replace
     fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>> {
-        let file_name = path.as_ref().file_name().unwrap().to_str().unwrap();
+        let file_name = vfs::path_file_name(path.as_ref())?;
         if !self.entry_name_map.contains_key(file_name) {
             return Err(format!("entry '{file_name}' does not exist").into());
         }

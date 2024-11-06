@@ -51,6 +51,16 @@ fn create_archive_dir(archive_path: &Path) -> Result<PathBuf, ArchiveError> {
     Ok(archive_dir)
 }
 
+fn path_file_name(path: &Path) -> Result<&str, ArchiveError> {
+    let filename_str = path
+        .file_name()
+        .ok_or_else(|| format!("unable to get OsStr filename of {path:?}"))?
+        .to_str()
+        .ok_or_else(|| format!("unable to get unicode filename of {path:?}"))?;
+
+    Ok(filename_str)
+}
+
 fn read_signature(reader: &mut impl Read) -> Result<[u8; 4], io::Error> {
     let mut sig_buf = [0u8; 4];
     reader.read_exact(&mut sig_buf)?;
