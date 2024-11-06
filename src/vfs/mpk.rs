@@ -45,10 +45,18 @@ impl MagesArchive {
     // so we always need 52 bytes of 0 padding.
     const HEADER_PADDING: [u8; 52] = [0u8; 52];
 
-    fn get_entry(&self, entry_name_or_id: &str) -> Option<&MagesEntry> {
+    fn get_entry(&self, entry_name_or_id: &str) -> Result<&MagesEntry, ArchiveError> {
         entry_name_or_id.parse::<u32>().map_or_else(
-            |_| Self::get_entry_by_name(&self.entries, &self.entry_name_map, entry_name_or_id),
-            |id| Self::get_entry_by_id(&self.entries, id),
+            |_| {
+                Self::get_entry_by_name(&self.entries, &self.entry_name_map, entry_name_or_id)
+                    .ok_or_else(|| {
+                        format!("entry '{entry_name_or_id}' not found in archive").into()
+                    })
+            },
+            |id| {
+                Self::get_entry_by_id(&self.entries, id)
+                    .ok_or_else(|| format!("entry with ID {id} not found in archive").into())
+            },
         )
     }
 
@@ -151,12 +159,7 @@ impl Archive for MagesArchive {
         let mpk_dir = vfs::create_archive_dir(&self.file_path)?;
         let mut entries_to_extract = vec![];
         for identifier in entry_names_or_ids {
-            let found_entry = match identifier.parse::<u32>() {
-                Ok(id) => Self::get_entry_by_id(&self.entries, id)
-                    .ok_or_else(|| format!("entry with ID {id} not found in archive"))?,
-                Err(_) => Self::get_entry_by_name(&self.entries, &self.entry_name_map, identifier)
-                    .ok_or_else(|| format!("entry '{identifier}' not found in archive"))?,
-            };
+            let found_entry = self.get_entry(identifier)?;
             entries_to_extract.push(found_entry);
         }
 
