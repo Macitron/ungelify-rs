@@ -73,6 +73,43 @@ impl MagesArchive {
         entries.get(entry_id)
     }
 
+    // finds the path in `paths` that has the name `entry_name`, if it exists
+    fn find_entry_path_match<'a>(
+        entry_name: &str,
+        paths: &'a [impl AsRef<Path>],
+    ) -> Option<&'a Path> {
+        for path in paths {
+            let filename = vfs::path_file_name(path.as_ref()).ok()?;
+            if entry_name == filename {
+                return Some(path.as_ref());
+            }
+        }
+
+        None
+    }
+
+    // write the archive header (signature, version, entry count) as well as the padding needed to
+    // get up to the first entry's data
+    fn write_archive_preamble<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), Box<dyn Error>> {
+        // look into using bincode or bytemuck crates for directly reading/writing structs
+        writer.write_all(Self::SIGNATURE)?;
+        writer.write_u16::<LE>(self.version.minor)?;
+        writer.write_u16::<LE>(self.version.major)?;
+
+        if self.version.is_old_format {
+            writer.write_u32::<LE>(u32::try_from(self.entry_count)?)?;
+        } else {
+            writer.write_u64::<LE>(self.entry_count)?;
+        }
+
+        writer.write_all(&Self::HEADER_PADDING)?;
+
+        Ok(())
+    }
+
     // if `entry.len_compressed`, i.e. the number of bytes written to the archive, is not aligned on
     // a block of 2048, write padding until it is
     fn write_entry_alignment_padding<W: Write>(
@@ -181,28 +218,21 @@ impl Archive for MagesArchive {
 
     // look into `glob` crate for replacing multiple files
 
-    // TODO refactor to accept an array/iterator of paths to replace
-    fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>> {
-        let file_name = vfs::path_file_name(path.as_ref())?;
-        if !self.entry_name_map.contains_key(file_name) {
-            return Err(format!("entry '{file_name}' does not exist").into());
+    // this one could probably use some work. right now it's O(N^2) for N entries in the archive,
+    // since for each entry it searches the whole array of paths for which one to replace, and I
+    // can't come up with a better algo rn. maybe a HashSet would help
+    fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>> {
+        for path in paths {
+            let filename = vfs::path_file_name(path.as_ref())?;
+            if !self.entry_name_map.contains_key(filename) {
+                return Err(format!("entry {filename} doesn't exist in archive").into());
+            }
         }
 
         let new_file = tempfile::tempfile()?;
         let mut temp_writer = BufWriter::new(new_file);
 
-        // look into using the 'bincode' crate for directly reading/writing structs
-        temp_writer.write_all(Self::SIGNATURE)?;
-        temp_writer.write_u16::<LE>(self.version.minor)?;
-        temp_writer.write_u16::<LE>(self.version.major)?;
-
-        if self.version.is_old_format {
-            temp_writer.write_u32::<LE>(u32::try_from(self.entry_count)?)?;
-        } else {
-            temp_writer.write_u64::<LE>(self.entry_count)?;
-        }
-
-        temp_writer.write_all(&Self::HEADER_PADDING)?;
+        self.write_archive_preamble(&mut temp_writer)?;
 
         // write out all the entries in the data portion of the archive, building up the new Vec of
         // entries as we go, then afterwards come back and write the entry headers
@@ -214,16 +244,14 @@ impl Archive for MagesArchive {
         // `entry.write_new()` doesn't change the id OR the name, just the offset and length of data
         let mut new_entries = IndexMap::with_capacity(usize::try_from(self.entry_count)?);
         let mut entry_iter = self.entries.into_iter().peekable();
-        // for entry in self.entries {
         while let Some((_, entry)) = entry_iter.next() {
-            let is_replacing = entry.name.to_lowercase() == file_name.to_lowercase();
-            let reader = if is_replacing {
-                let entry_file = File::open(&path)?;
-                &mut BufReader::new(entry_file)
-            } else {
-                &mut *self.reader.borrow_mut()
+            let opt_new_path = Self::find_entry_path_match(&entry.name, paths);
+            let reader = match opt_new_path {
+                Some(path) => &mut BufReader::new(File::open(path)?),
+                None => &mut *self.reader.borrow_mut(),
             };
 
+            let is_replacing = opt_new_path.is_some();
             let new_entry = entry.write_new(reader, &mut temp_writer, is_replacing)?;
             let len_written = new_entry.len_compressed;
             new_entries.insert(new_entry.id, new_entry);

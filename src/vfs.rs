@@ -17,7 +17,7 @@ pub trait Archive: Sized {
 
     fn extract_all_entries(&self) -> Result<(), Box<dyn Error>>;
 
-    fn replace_entry<P: AsRef<Path>>(self, path: P) -> Result<Self, Box<dyn Error>>;
+    fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>>;
 }
 
 // gets the name of the archive file without the extension to use as the extraction directory.
