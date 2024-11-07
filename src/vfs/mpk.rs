@@ -222,10 +222,14 @@ impl Archive for MagesArchive {
     // since for each entry it searches the whole array of paths for which one to replace, and I
     // can't come up with a better algo rn. maybe a HashSet would help
     fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>> {
+        if paths.is_empty() {
+            return Err("no replacement files were specified".into());
+        }
+
         for path in paths {
             let filename = vfs::path_file_name(path.as_ref())?;
             if !self.entry_name_map.contains_key(filename) {
-                return Err(format!("entry {filename} doesn't exist in archive").into());
+                return Err(format!("entry '{filename}' does not exist in archive").into());
             }
         }
 

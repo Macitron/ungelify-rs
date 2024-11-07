@@ -8,7 +8,7 @@ fn main() {
     let args = Cli::parse();
 
     if let Err(e) = cli::run(args) {
-        eprintln!("{e}");
+        eprintln!("ungelify: {e}");
         process::exit(1);
     }
 }
