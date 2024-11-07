@@ -29,7 +29,7 @@ pub enum Commands {
         #[arg(help = "The archive to extract")]
         archive: PathBuf,
         #[arg(
-            help = "The name or ID of the file to extract\nIf empty, the whole archive is extracted"
+            help = "The names or IDs of the files to extract.\nIf omitted, the whole archive is extracted"
         )]
         entries: Option<Vec<String>>,
     },
@@ -38,8 +38,8 @@ pub enum Commands {
     Replace {
         #[arg(help = "The archive to repack")]
         archive: PathBuf,
-        #[arg(help = "The name of the file to replace")]
-        entry_file: PathBuf,
+        #[arg(help = "The names of the files to replace")]
+        replacement_files: Vec<PathBuf>,
     },
 }
 
@@ -62,10 +62,10 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::Replace {
             archive,
-            entry_file,
+            replacement_files,
         } => {
             let archive: MagesArchive = Archive::from_file(archive)?;
-            archive.replace_entry(entry_file)?;
+            archive.replace_entries(&replacement_files)?;
         }
     }
 
