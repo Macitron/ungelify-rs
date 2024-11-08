@@ -13,9 +13,13 @@ pub trait Archive: Sized {
 
     fn list_entries(&self);
 
-    fn extract_entries(&self, entry_names_or_ids: &[String]) -> Result<(), Box<dyn Error>>;
+    fn extract_entries(
+        &self,
+        entry_names_or_ids: &[String],
+        output_dir: Option<PathBuf>,
+    ) -> Result<(), Box<dyn Error>>;
 
-    fn extract_all_entries(&self) -> Result<(), Box<dyn Error>>;
+    fn extract_all_entries(&self, output_dir: Option<PathBuf>) -> Result<(), Box<dyn Error>>;
 
     fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>>;
 }

@@ -7,9 +7,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 #[derive(Debug)]
 pub struct MagesArchive {
@@ -192,25 +192,42 @@ impl Archive for MagesArchive {
         }
     }
 
-    fn extract_entries(&self, entry_names_or_ids: &[String]) -> Result<(), Box<dyn Error>> {
-        let mpk_dir = vfs::create_archive_dir(&self.file_path)?;
+    fn extract_entries(
+        &self,
+        entry_names_or_ids: &[String],
+        output_dir: Option<PathBuf>,
+    ) -> Result<(), Box<dyn Error>> {
         let mut entries_to_extract = vec![];
         for identifier in entry_names_or_ids {
             let found_entry = self.get_entry(identifier)?;
             entries_to_extract.push(found_entry);
         }
 
+        let extract_dir = match output_dir {
+            Some(path) => {
+                fs::create_dir_all(&path)?;
+                path
+            }
+            None => vfs::create_archive_dir(&self.file_path)?,
+        };
+
         for entry in entries_to_extract {
-            entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)?;
+            entry.extract(&mut *self.reader.borrow_mut(), &extract_dir)?;
         }
 
         Ok(())
     }
 
-    fn extract_all_entries(&self) -> Result<(), Box<(dyn Error)>> {
-        let mpk_dir = vfs::create_archive_dir(&self.file_path)?;
+    fn extract_all_entries(&self, output_dir: Option<PathBuf>) -> Result<(), Box<(dyn Error)>> {
+        let extract_dir = match output_dir {
+            Some(path) => {
+                fs::create_dir_all(&path)?;
+                path
+            }
+            None => vfs::create_archive_dir(&self.file_path)?,
+        };
         for entry in self.entries.values() {
-            entry.extract(&mut *self.reader.borrow_mut(), &mpk_dir)?;
+            entry.extract(&mut *self.reader.borrow_mut(), &extract_dir)?;
         }
 
         Ok(())
