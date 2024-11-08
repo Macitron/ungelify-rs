@@ -1,8 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::error::Error;
 use std::path::PathBuf;
-use ungelify::vfs::mpk::MagesArchive;
-use ungelify::vfs::Archive;
+use ungelify::vfs::{Archive, ArchiveImpl};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -17,17 +16,23 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    #[command(about = "List out contents of an archive")]
-    #[command(arg_required_else_help = true, aliases = ["l", "ls", "list-contents"])]
+    #[command(
+        about = "List out contents of an archive",
+        arg_required_else_help = true,
+        aliases = ["l", "ls", "list-contents"]
+    )]
     List {
-        #[arg(help = "The archive to list")]
-        archive: PathBuf,
+        #[arg(value_name = "ARCHIVE", help = "The archive to list")]
+        archive_path: PathBuf,
     },
-    #[command(about = "Extract a file from an archive")]
-    #[command(arg_required_else_help = true, aliases = ["x", "ex"])]
+    #[command(
+        about = "Extract a file from an archive",
+        arg_required_else_help = true,
+        aliases = ["x", "ex"]
+    )]
     Extract {
-        #[arg(help = "The archive to extract")]
-        archive: PathBuf,
+        #[arg(value_name = "ARCHIVE", help = "The archive to extract")]
+        archive_path: PathBuf,
         #[arg(
             help = "The names or IDs of the files to extract.\nIf omitted, the whole archive is extracted"
         )]
@@ -35,11 +40,14 @@ pub enum Commands {
         #[arg(long, short, help = "The directory to extract the entries to")]
         output_dir: Option<PathBuf>,
     },
-    #[command(about = "Repack an archive with a modified file")]
-    #[command(arg_required_else_help = true, aliases = ["r", "re"])]
+    #[command(
+        about = "Repack an archive with a modified file",
+        arg_required_else_help = true,
+        aliases = ["r", "re"]
+    )]
     Replace {
-        #[arg(help = "The archive to repack")]
-        archive: PathBuf,
+        #[arg(value_name = "ARCHIVE", help = "The archive to repack")]
+        archive_path: PathBuf,
         #[arg(help = "The names of the files to replace")]
         replacement_files: Vec<PathBuf>,
     },
@@ -47,16 +55,16 @@ pub enum Commands {
 
 pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
-        Commands::List { archive } => {
-            let archive: MagesArchive = Archive::from_file(archive)?;
+        Commands::List { archive_path } => {
+            let archive = ArchiveImpl::open(&archive_path)?;
             archive.list_entries();
         }
         Commands::Extract {
-            archive,
+            archive_path,
             entries,
             output_dir,
         } => {
-            let archive: MagesArchive = Archive::from_file(archive)?;
+            let archive = ArchiveImpl::open(&archive_path)?;
             match entries {
                 Some(list) => {
                     archive.extract_entries(&list, output_dir)?;
@@ -67,10 +75,10 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             }
         }
         Commands::Replace {
-            archive,
+            archive_path,
             replacement_files,
         } => {
-            let archive: MagesArchive = Archive::from_file(archive)?;
+            let archive = ArchiveImpl::open(&archive_path)?;
             archive.replace_entries(&replacement_files)?;
         }
     }

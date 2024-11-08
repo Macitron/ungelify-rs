@@ -1,7 +1,9 @@
 use crate::vfs::error::ArchiveError;
+use crate::vfs::mpk::MagesArchive;
 use std::cmp::min;
 use std::error::Error;
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -9,8 +11,6 @@ pub mod error;
 pub mod mpk;
 
 pub trait Archive: Sized {
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>>;
-
     fn list_entries(&self);
 
     fn extract_entries(
@@ -125,4 +125,61 @@ fn copy_n(reader: &mut impl Read, writer: &mut impl Write, n: usize) -> Result<u
     }
 
     Ok(total_written as u64)
+}
+
+pub enum ArchiveImpl {
+    Mpk(MagesArchive),
+}
+
+impl ArchiveImpl {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
+        let mut reader = BufReader::new(File::open(&path)?);
+        let sig = read_signature(&mut reader)?;
+
+        reader.seek(SeekFrom::Start(0))?;
+        match &sig[..] {
+            MagesArchive::SIGNATURE => Ok(MagesArchive::build(reader, path)?.into()),
+            _ => Err(format!(
+                "unrecognized archive signature '{}'",
+                String::from_utf8_lossy(&sig)
+            )
+            .into()),
+        }
+    }
+}
+
+impl Archive for ArchiveImpl {
+    fn list_entries(&self) {
+        match self {
+            Self::Mpk(mpk) => mpk.list_entries(),
+        }
+    }
+
+    fn extract_entries(
+        &self,
+        entry_names_or_ids: &[String],
+        output_dir: Option<PathBuf>,
+    ) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Mpk(mpk) => mpk.extract_entries(entry_names_or_ids, output_dir),
+        }
+    }
+
+    fn extract_all_entries(&self, output_dir: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Mpk(mpk) => mpk.extract_all_entries(output_dir),
+        }
+    }
+
+    fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>> {
+        match self {
+            Self::Mpk(mpk) => Ok(mpk.replace_entries(paths)?.into()),
+        }
+    }
+}
+
+impl From<MagesArchive> for ArchiveImpl {
+    fn from(value: MagesArchive) -> Self {
+        Self::Mpk(value)
+    }
 }

@@ -45,6 +45,50 @@ impl MagesArchive {
     // so we always need 52 bytes of 0 padding.
     const HEADER_PADDING: [u8; 52] = [0u8; 52];
 
+    pub fn build<P: AsRef<Path>>(
+        mut reader: BufReader<File>,
+        path: P,
+    ) -> Result<Self, Box<dyn Error>> {
+        let signature = vfs::read_signature(&mut reader)?;
+        if signature != Self::SIGNATURE {
+            return Err(format!("invalid file signature '{signature:?}' for MPK archive").into());
+        }
+
+        let ver_minor = reader.read_u16::<LE>()?;
+        let ver_major = reader.read_u16::<LE>()?;
+        let version = MpkVersion::build(ver_major, ver_minor)?;
+
+        let entry_count = if version.is_old_format {
+            u64::from(reader.read_u32::<LE>()?)
+        } else {
+            reader.read_u64::<LE>()?
+        };
+
+        let mut entries = IndexMap::with_capacity(usize::try_from(entry_count)?);
+        let mut entry_name_map = HashMap::with_capacity(entries.capacity());
+        for idx in 0..entry_count {
+            let entry_header_offset =
+                version.first_entry_header_offset() + (idx * MagesEntry::HEADER_LENGTH);
+            let entry = MagesEntry::read_at_offset(
+                entry_header_offset,
+                &mut reader,
+                version.is_old_format,
+            )?;
+            let (entry_id, entry_name) = (entry.id, entry.name.clone());
+            entries.insert(entry_id, entry);
+            entry_name_map.insert(entry_name, entry_id);
+        }
+
+        Ok(Self {
+            reader: RefCell::new(reader),
+            file_path: path.as_ref().to_path_buf(),
+            version,
+            entry_count,
+            entries,
+            entry_name_map,
+        })
+    }
+
     fn get_entry(&self, entry_name_or_id: &str) -> Result<&MagesEntry, ArchiveError> {
         entry_name_or_id.parse::<u32>().map_or_else(
             |_| {
@@ -132,58 +176,15 @@ impl MagesArchive {
 }
 
 impl Archive for MagesArchive {
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
-        let mut reader = BufReader::new(File::open(&path)?);
-
-        let signature = vfs::read_signature(&mut reader)?;
-        if signature != Self::SIGNATURE {
-            return Err(format!("invalid file signature '{signature:?}' for MPK archive").into());
-        }
-
-        let ver_minor = reader.read_u16::<LE>()?;
-        let ver_major = reader.read_u16::<LE>()?;
-        let version = MpkVersion::build(ver_major, ver_minor)?;
-
-        let entry_count = if version.is_old_format {
-            u64::from(reader.read_u32::<LE>()?)
-        } else {
-            reader.read_u64::<LE>()?
-        };
-
-        let mut entries = IndexMap::with_capacity(usize::try_from(entry_count)?);
-        let mut entry_name_map = HashMap::with_capacity(entries.capacity());
-        for idx in 0..entry_count {
-            let entry_header_offset =
-                version.first_entry_header_offset() + (idx * MagesEntry::HEADER_LENGTH);
-            let entry = MagesEntry::read_at_offset(
-                entry_header_offset,
-                &mut reader,
-                version.is_old_format,
-            )?;
-            let (entry_id, entry_name) = (entry.id, entry.name.clone());
-            entries.insert(entry_id, entry);
-            entry_name_map.insert(entry_name, entry_id);
-        }
-
-        Ok(Self {
-            reader: RefCell::new(reader),
-            file_path: path.as_ref().to_path_buf(),
-            version,
-            entry_count,
-            entries,
-            entry_name_map,
-        })
-    }
-
     #[allow(clippy::print_literal)] // readability >>>
     fn list_entries(&self) {
         // maybe want to calculate the actual longest ID length, longest filename length rather than
         // using magic constants
-        println!("\n{:<5} {:<20} {:<10} {}", "ID", "Name", "Size", "Offset");
+        println!("\n{:<5} {:<20} {:<12} {}", "ID", "Name", "Size", "Offset");
 
         for entry in self.entries.values() {
             println!(
-                "{:<5} {:<20} {:<10} {:#x}",
+                "{:<5} {:<20} {:<12} {:#x}",
                 entry.id,
                 entry.name,
                 bytesize::to_string(entry.len, true),
