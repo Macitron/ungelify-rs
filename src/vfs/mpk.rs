@@ -74,6 +74,22 @@ impl MagesArchive {
                 &mut reader,
                 version.is_old_format,
             )?;
+
+            // there's a known issue where some archives just straight up lie about how many entries
+            // they have and at least one entry header is all 0s.
+            // example: chara.mpk in C;C LCC has its last entry header as all 0s, overwriting the
+            // valid, already-initialized entry that has ID 0 and resulting in a line that looks
+            // like:
+            //
+            // ID    Name                 Size         Offset
+            // 0                          0 B          0x0
+            //
+            // the easiest way to solve this is just to make sure the offset isn't 0, because no
+            // entry will ever be at offset 0 in an archive.
+            if entry.offset == 0 {
+                continue;
+            }
+
             let (entry_id, entry_name) = (entry.id, entry.name.clone());
             entries.insert(entry_id, entry);
             entry_name_map.insert(entry_name, entry_id);
@@ -180,7 +196,7 @@ impl Archive for MagesArchive {
     fn list_entries(&self) {
         // maybe want to calculate the actual longest ID length, longest filename length rather than
         // using magic constants
-        println!("\n{:<5} {:<20} {:<12} {}", "ID", "Name", "Size", "Offset");
+        println!("{:<5} {:<20} {:<12} {}", "ID", "Name", "Size", "Offset");
 
         for entry in self.entries.values() {
             println!(
