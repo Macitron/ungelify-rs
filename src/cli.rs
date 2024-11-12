@@ -65,14 +65,7 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             output_dir,
         } => {
             let archive = ArchiveImpl::open(&archive_path)?;
-            match entries {
-                Some(list) => {
-                    archive.extract_entries(&list, output_dir)?;
-                }
-                None => {
-                    archive.extract_all_entries(output_dir)?;
-                }
-            }
+            archive.extract_entries(entries, output_dir)?;
         }
         Commands::Replace {
             archive_path,

@@ -3,9 +3,9 @@ use crate::vfs::mpk::MagesArchive;
 use std::cmp::min;
 use std::error::Error;
 use std::fs::File;
+use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 pub mod error;
 pub mod mpk;
@@ -15,11 +15,9 @@ pub trait Archive: Sized {
 
     fn extract_entries(
         &self,
-        entry_names_or_ids: &[String],
+        entry_names_or_ids: Option<Vec<String>>,
         output_dir: Option<PathBuf>,
     ) -> Result<(), Box<dyn Error>>;
-
-    fn extract_all_entries(&self, output_dir: Option<PathBuf>) -> Result<(), Box<dyn Error>>;
 
     fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>>;
 }
@@ -30,26 +28,25 @@ pub trait Archive: Sized {
 // it.
 // e.g., '../mpk/script.mpk' -> '../mpk/script'
 //       './archive_no_ext' -> './archive_no_ext.d'
-fn create_archive_dir(archive_path: &Path) -> Result<PathBuf, ArchiveError> {
+fn archive_dir_name<P: AsRef<Path>>(archive_path: P) -> Result<PathBuf, ArchiveError> {
     let parent_dir = archive_path
+        .as_ref()
         .parent()
         .ok_or("unable to get parent directory of archive")?;
     let archive_stem = archive_path
+        .as_ref()
         .file_stem()
         .ok_or("unable to get archive file stem")?;
 
     let mut archive_dir = parent_dir.join(archive_stem);
-    if archive_path == archive_dir {
+    if archive_path.as_ref() == archive_dir {
         let mut archive_d = archive_path
+            .as_ref()
             .file_name()
             .ok_or("unable to get archive file name")?
             .to_os_string();
         archive_d.push(".d");
         archive_dir = parent_dir.join(archive_d);
-    }
-
-    if let Err(e) = fs::create_dir_all(&archive_dir) {
-        return Err(format!("error creating directory {archive_dir:?} for archive: {e}",).into());
     }
 
     Ok(archive_dir)
@@ -157,17 +154,11 @@ impl Archive for ArchiveImpl {
 
     fn extract_entries(
         &self,
-        entry_names_or_ids: &[String],
+        entry_names_or_ids: Option<Vec<String>>,
         output_dir: Option<PathBuf>,
     ) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Mpk(mpk) => mpk.extract_entries(entry_names_or_ids, output_dir),
-        }
-    }
-
-    fn extract_all_entries(&self, output_dir: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
-        match self {
-            Self::Mpk(mpk) => mpk.extract_all_entries(output_dir),
         }
     }
 
