@@ -174,3 +174,40 @@ impl From<MagesArchive> for ArchiveImpl {
         Self::Mpk(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn correct_archive_dir_names() {
+        let archive_expectations = vec![
+            ("script.mpk", "script"),
+            ("chara.mpk", "chara"),
+            ("bgm.cpk", "bgm"),
+            ("no-ext", "no-ext.d"),
+            ("two.ext.dots", "two.ext"),
+        ];
+
+        for pair in archive_expectations {
+            let actual_dir_name = archive_dir_name(pair.0).unwrap();
+            assert_eq!(actual_dir_name, PathBuf::from(pair.1));
+        }
+    }
+
+    #[test]
+    fn file_path_names_work() {
+        let filename_expectations = vec![
+            ("resources/script.mpk", "script.mpk"),
+            ("../gamedata/chara.mpk", "chara.mpk"),
+            ("/home/stallman/games/cclcc/music/bgm.mpk", "bgm.mpk"),
+            ("op18.mp4", "op18.mp4"),
+        ];
+
+        for pair in filename_expectations {
+            let path = PathBuf::from(pair.0);
+            let actual_filename = path_file_name(&path).unwrap();
+            assert_eq!(actual_filename, pair.1);
+        }
+    }
+}
