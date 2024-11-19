@@ -204,7 +204,7 @@ impl Archive for MagesArchive {
                 "{:<5} {:<20} {:<12} {:#x}",
                 entry.id,
                 entry.name,
-                bytesize::to_string(entry.len, true),
+                bytesize::to_string(entry.len, true) + if entry.is_compressed() { "*" } else { "" },
                 entry.offset
             );
         }
