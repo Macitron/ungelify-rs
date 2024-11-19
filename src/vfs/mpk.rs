@@ -387,7 +387,7 @@ impl MagesEntry {
             offset = u64::from(mpk_reader.read_u32::<LE>()?);
             len_compressed = u64::from(mpk_reader.read_u32::<LE>()?);
             len_uncompressed = u64::from(mpk_reader.read_u32::<LE>()?);
-            mpk_reader.seek(SeekFrom::Current(16))?;
+            mpk_reader.seek_relative(16)?;
         } else {
             offset = mpk_reader.read_u64::<LE>()?;
             len_compressed = mpk_reader.read_u64::<LE>()?;
@@ -438,7 +438,7 @@ impl MagesEntry {
             writer.write_u32::<LE>(u32::try_from(self.offset)?)?;
             writer.write_u32::<LE>(u32::try_from(self.len_compressed)?)?;
             writer.write_u32::<LE>(u32::try_from(self.len)?)?;
-            writer.seek(SeekFrom::Current(16))?;
+            writer.seek_relative(16)?;
         } else {
             writer.write_u64::<LE>(self.offset)?;
             writer.write_u64::<LE>(self.len_compressed)?;

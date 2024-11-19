@@ -1,4 +1,4 @@
-# Ungelify
+# ungelify-rs
 
 This is a CLI tool for inspecting, unpacking, and repacking Mages archive file formats. It is a Rust port of the
 original tool of the same name which was part of the now-abandoned
