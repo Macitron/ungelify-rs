@@ -105,23 +105,39 @@ fn write_padding<W: Write>(writer: &mut W, padding_length: usize) -> Result<(), 
     Ok(())
 }
 
-// copy `n` bytes from `reader` to `writer`
-// does not flush! (bad roommate)
-fn copy_n(reader: &mut impl Read, writer: &mut impl Write, n: usize) -> Result<u64, io::Error> {
+/// Reads exactly `n` bytes from `reader` and writes them to `writer`.
+///
+/// This function is intended to work both with vanilla readers/writers AND with compression
+/// read/write encoders/decoders and thus does not keep track of the number of bytes that have been
+/// written; that must be done by the caller.
+///
+/// The only guarantee made is that all `n` bytes will be consumed and that all consumed bytes will
+/// be written through whatever transformations the reader/writer pair performs. The `writer` is
+/// *not* flushed upon completion.
+///
+/// # Errors
+///
+/// If this function encounters any errors while reading or writing to `reader` or `writer`, then
+/// the corresponding [`io::Error`] is returned.
+fn write_n_from_reader(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    n: u64,
+) -> Result<(), Box<dyn Error>> {
     let mut buffer = [0u8; BUFFER_SIZE];
-    let mut total_written = 0;
+    let mut total_read = 0;
 
-    while total_written < n {
-        let bytes_remaining = n - total_written;
-        let to_read = min(bytes_remaining, buffer.len());
+    while total_read < n {
+        let read_remaining = n - total_read;
+        let to_read = min(read_remaining, buffer.len() as u64);
 
-        let bytes_read = reader.read(&mut buffer[..to_read])?;
-        writer.write_all(&buffer[..bytes_read])?;
+        reader.read_exact(&mut buffer[..usize::try_from(to_read)?])?;
+        total_read += to_read;
 
-        total_written += bytes_read;
+        writer.write_all(&buffer[..usize::try_from(to_read)?])?;
     }
 
-    Ok(total_written as u64)
+    Ok(())
 }
 
 pub enum ArchiveImpl {

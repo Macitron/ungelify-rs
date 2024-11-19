@@ -2,6 +2,7 @@ use crate::vfs;
 use crate::vfs::error::ArchiveError;
 use crate::vfs::Archive;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use flate2::write::ZlibDecoder as ZlibDecodeWriter;
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -370,7 +371,6 @@ impl MagesEntry {
         &self.name
     }
 
-    // TODO add that off-by-one check that dex mentioned (check if offset is garbo)
     fn read_at_offset<R: Read + Seek>(
         offset: u64,
         mpk_reader: &mut R,
@@ -405,6 +405,10 @@ impl MagesEntry {
         })
     }
 
+    const fn is_compressed(&self) -> bool {
+        self.len != self.len_compressed
+    }
+
     fn extract<R: Read + Seek, P: AsRef<Path>>(
         &self,
         reader: &mut R,
@@ -419,8 +423,21 @@ impl MagesEntry {
         let mut writer = BufWriter::new(entry_file);
 
         reader.seek(SeekFrom::Start(self.offset))?;
-        vfs::copy_n(reader, &mut writer, usize::try_from(self.len)?)?;
-        writer.flush()?;
+        if self.is_compressed() {
+            // println!(
+            //     "{} is compressed: len={}, len_compressed={}",
+            //     self.name(),
+            //     self.len,
+            //     self.len_compressed
+            // );
+            let mut zlib_writer = ZlibDecodeWriter::new(writer);
+            vfs::write_n_from_reader(reader, &mut zlib_writer, self.len_compressed)?;
+            // eprintln!("wrote {} bytes to file", zlib_writer.total_out());
+            zlib_writer.finish()?;
+        } else {
+            vfs::write_n_from_reader(reader, &mut writer, self.len)?;
+            writer.flush()?;
+        }
 
         Ok(())
     }
@@ -474,7 +491,8 @@ impl MagesEntry {
             io::copy(reader, writer)?
         } else {
             reader.seek(SeekFrom::Start(self.offset))?;
-            vfs::copy_n(reader, writer, usize::try_from(self.len_compressed)?)?
+            vfs::write_n_from_reader(reader, writer, self.len_compressed)?;
+            self.len_compressed
         };
 
         Ok(Self {
