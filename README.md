@@ -2,7 +2,7 @@
 
 This is a CLI tool for inspecting, unpacking, and repacking Mages archive file formats. It is a Rust port of the
 original tool of the same name which was part of the now-abandoned
-[SciAdv.Net](https://github.com/CommitteeOfZero/SciAdv.Net) project.
+[SciAdv.Net](https://github.com/CommitteeOfZero/SciAdv.Net/tree/master/src/Tools/Ungelify) project.
 
 ## Usage
 
@@ -14,15 +14,23 @@ also run `./ungelify help <subcommand>` to display the subcommand's usage as wel
 *aliases: `ls`, `l`*
 
 List out the file entries in the given archive. Includes each entry's ID, name, uncompressed file size, and hex offset
-within the archive.
+within the archive. Compressed entries have their size suffixed with an asterisk (`*`).
 
-```
+```shell
 $ ./ungelify ls script.mpk
-
 ID    Name                 Size         Offset
 0     _ATCH.SCX            105.5 kiB    0xc000
 1     _MAIL.SCX            218.8 kiB    0x26800
 2     _STARTUP_WIN.SCX     25.8 kiB     0x5d800
+...
+
+# With compressed entries
+$ ./ungelify list chara.mpk
+ID    Name                 Size         Offset
+0     ARI_ALA.png          2.0 MiB      0x4e800
+1     ARI_ALA_.lay         112.3 kiB*   0x25b000
+2     ARI_ALB.png          2.0 MiB      0x25e000
+3     ARI_ALB_.lay         110.4 kiB*   0x462000
 ...
 ```
 
@@ -36,7 +44,7 @@ extension, a directory is created with the name `<archive_filename>.d`.
 
 You can optionally supply the `-o | --output-dir <DIRECTORY>` flag to extract entries to `DIRECTORY` instead.
 
-```
+```shell
 $ ./ungelify extract script.mpk
 $ ls script
 ANIME.SCX        SG02_08.SCX      SG04_03.SCX      SG05_06.SCX
@@ -56,7 +64,7 @@ SG04_17.SCX SG06_02.SCX
 Rebuild the archive, replacing entries with the contents of the given files. Each replacement file's name must
 correspond to an existing entry in the archive, else the command will fail.
 
-```
+```shell
 $ ./ungelify r script.mpk ./replacements/SG04_05.SCX ./replacements/SG05_08.SCX
 
 # Currently only works on *nix systems via shell globbing (and maybe Powershell, I wouldn't know),
@@ -66,5 +74,5 @@ $ ./ungelify replace script.mpk ./replacements/*.SCX
 
 ## Supported File Formats
 
-The only archive formats that are supported at this time are Mages archives V1 and V2 with uncompressed entries. Further
-archive format support is under active development.
+The only archive formats that are supported at this time are MAGES. archives v1 and v2, including support for compressed
+entries. Further archive format support is under active development.
