@@ -2,7 +2,9 @@ use crate::vfs;
 use crate::vfs::error::ArchiveError;
 use crate::vfs::Archive;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use flate2::bufread::ZlibEncoder as ZlibEncodeReader;
 use flate2::write::ZlibDecoder as ZlibDecodeWriter;
+use flate2::Compression;
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -271,24 +273,36 @@ impl Archive for MagesArchive {
         // we don't need a new entry-name map because this is only a repacking application.
         // `entry.write_new()` doesn't change the id OR the name, just the offset and length of data
         let mut new_entries = IndexMap::with_capacity(usize::try_from(self.entry_count)?);
+
         let mut entry_iter = self.entries.into_iter().peekable();
         while let Some((_, entry)) = entry_iter.next() {
             let opt_new_path = Self::find_entry_path_match(&entry.name, paths);
-            let reader = match opt_new_path {
-                Some(path) => &mut BufReader::new(File::open(path)?),
-                None => &mut *self.reader.borrow_mut(),
-            };
+            let new_entry = if let Some(path) = opt_new_path {
+                // replacing entry with contents of a source file
+                let file = File::open(path)?;
+                let file_len = file.metadata()?.len();
+                let mut reader = BufReader::new(file);
 
-            let is_replacing = opt_new_path.is_some();
-            let new_entry = entry.write_new(reader, &mut temp_writer, is_replacing)?;
-            let len_written = new_entry.len_compressed;
-            new_entries.insert(new_entry.id, new_entry);
+                if entry.is_compressed() {
+                    let mut reader = ZlibEncodeReader::new(reader, Compression::default());
+                    entry.write_new(&mut reader, &mut temp_writer, Some(file_len))?
+                } else {
+                    entry.write_new(&mut reader, &mut temp_writer, Some(file_len))?
+                }
+            } else {
+                // no replacement, write entry contents from existing archive to new one
+                let mut reader = &mut *self.reader.borrow_mut();
+                reader.seek(SeekFrom::Start(entry.offset))?;
+                entry.write_new(&mut reader, &mut temp_writer, None)?
+            };
 
             // last file in the archive does not have to be aligned on a 2048-byte block
             // ... for some reason
             if entry_iter.peek().is_some() {
-                Self::write_entry_alignment_padding(&mut temp_writer, len_written)?;
+                Self::write_entry_alignment_padding(&mut temp_writer, new_entry.len_compressed)?;
             }
+
+            new_entries.insert(new_entry.id, new_entry);
         }
 
         // maybe refactor so we create the entries vector first with all the metadata and then write
@@ -474,31 +488,30 @@ impl MagesEntry {
     // consumes this entry and writes a new one at the offset that `writer` is currently at upon
     // invocation.
     //
-    // if `is_replacing` is true, then all the contents of `reader` will be written to `writer` and
-    // treated as the new contents of the entry; otherwise, `reader` is treated as the existing MPK
-    // archive and the existing contents of the entry will simply be copied over.
-    //
     // block alignment is NOT performed by this function and must be ensured by the caller.
-    fn write_new<R: Read + Seek, W: Write + Seek>(
+    fn write_new<R: Read, W: Write + Seek>(
         self,
         reader: &mut R,
         writer: &mut W,
-        is_replacing: bool,
+        source_len: Option<u64>, // None if not replacing with contents of a file
     ) -> Result<Self, Box<dyn Error>> {
         let new_offset = writer.stream_position()?;
 
-        let len_written = if is_replacing {
-            io::copy(reader, writer)?
+        let len_uncompressed;
+        if let Some(len) = source_len {
+            vfs::write_all_from_reader(reader, writer)?;
+            len_uncompressed = len;
         } else {
-            reader.seek(SeekFrom::Start(self.offset))?;
             vfs::write_n_from_reader(reader, writer, self.len_compressed)?;
-            self.len_compressed
+            len_uncompressed = self.len;
         };
+
+        let bytes_written = writer.stream_position()? - new_offset;
 
         Ok(Self {
             offset: new_offset,
-            len: len_written, // eventually rework for compressed entries
-            len_compressed: len_written,
+            len: len_uncompressed,
+            len_compressed: bytes_written,
             ..self
         })
     }

@@ -140,6 +140,24 @@ fn write_n_from_reader(
     Ok(())
 }
 
+fn write_all_from_reader(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+) -> Result<u64, Box<dyn Error>> {
+    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut bytes_read = usize::MAX;
+    let mut total_written = 0;
+
+    while bytes_read > 0 {
+        bytes_read = reader.read(&mut buffer)?;
+        writer.write_all(&buffer[..bytes_read])?;
+
+        total_written += bytes_read;
+    }
+
+    Ok(total_written as u64)
+}
+
 pub enum ArchiveImpl {
     Mpk(MagesArchive),
 }
