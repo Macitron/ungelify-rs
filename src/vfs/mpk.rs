@@ -5,6 +5,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use flate2::bufread::ZlibEncoder as ZlibEncodeReader;
 use flate2::write::ZlibDecoder as ZlibDecodeWriter;
 use flate2::Compression;
+use globset::GlobSetBuilder;
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -108,32 +109,49 @@ impl MagesArchive {
         })
     }
 
-    fn get_entry(&self, entry_name_or_id: &str) -> Result<&MagesEntry, ArchiveError> {
-        entry_name_or_id.parse::<u32>().map_or_else(
-            |_| {
-                Self::get_entry_by_name(&self.entries, &self.entry_name_map, entry_name_or_id)
-                    .ok_or_else(|| {
-                        format!("entry '{entry_name_or_id}' not found in archive").into()
-                    })
-            },
-            |id| {
-                Self::get_entry_by_id(&self.entries, id)
-                    .ok_or_else(|| format!("entry with ID {id} not found in archive").into())
-            },
-        )
+    // get all entries that match the globs given
+    // - build up a glob set from the cli args
+    // - then iterate over all entries, only add those which match the globset ezpz
+    // TODO error or log when one or more globs don't match any entries
+    fn get_entries(
+        &self,
+        entry_globs_or_ids: Vec<String>,
+    ) -> Result<Vec<&MagesEntry>, Box<dyn Error>> {
+        let mut results = vec![];
+        let mut globset = GlobSetBuilder::new();
+
+        for glob in entry_globs_or_ids {
+            if let Ok(id) = glob.parse::<u32>() {
+                results.push(
+                    self.get_entry_by_id(id)
+                        .ok_or_else(|| format!("entry with ID {id} not found in archive"))?,
+                );
+            } else {
+                globset.add(glob.parse()?);
+            }
+        }
+
+        let glob_set = globset.build()?;
+        if !glob_set.is_empty() {
+            for entry_name in self.entry_name_map.keys() {
+                if glob_set.is_match(entry_name) {
+                    results.push(self.get_entry_by_name(entry_name).ok_or_else(|| {
+                        format!("no entry with name {entry_name} found in archive")
+                    })?);
+                }
+            }
+        }
+
+        Ok(results)
     }
 
-    fn get_entry_by_id(entries: &IndexMap<u32, MagesEntry>, entry_id: u32) -> Option<&MagesEntry> {
-        entries.get(&entry_id)
+    fn get_entry_by_id(&self, entry_id: u32) -> Option<&MagesEntry> {
+        self.entries.get(&entry_id)
     }
 
-    fn get_entry_by_name<'a>(
-        entries: &'a IndexMap<u32, MagesEntry>,
-        entry_name_map: &HashMap<String, u32>,
-        entry_name: &str,
-    ) -> Option<&'a MagesEntry> {
-        let entry_id = entry_name_map.get(entry_name)?;
-        entries.get(entry_id)
+    fn get_entry_by_name(&self, entry_name: &str) -> Option<&MagesEntry> {
+        let entry_id = self.entry_name_map.get(entry_name)?;
+        self.entries.get(entry_id)
     }
 
     // finds the path in `paths` that has the name `entry_name`, if it exists
@@ -218,16 +236,13 @@ impl Archive for MagesArchive {
         output_dir: Option<PathBuf>,
     ) -> Result<(), Box<dyn Error>> {
         let entries_to_extract = match entry_names_or_ids {
-            Some(entries) => {
-                let mut entries_to_extract = vec![];
-                for identifier in entries {
-                    let found_entry = self.get_entry(&identifier)?;
-                    entries_to_extract.push(found_entry);
-                }
-                entries_to_extract
-            }
+            Some(entry_globs) => self.get_entries(entry_globs)?,
             None => self.entries.values().collect(),
         };
+
+        if entries_to_extract.is_empty() {
+            return Err(ArchiveError::from("provided patterns did not match any entries").into());
+        }
 
         let extract_dir = match output_dir {
             Some(path) => path,
