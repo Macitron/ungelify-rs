@@ -1,4 +1,4 @@
-# ungelify-rs
+# Ungelify
 
 This is a CLI tool for inspecting, unpacking, and repacking Mages archive file formats. It is a Rust port of the
 original tool of the same name which was part of the now-abandoned
@@ -6,7 +6,7 @@ original tool of the same name which was part of the now-abandoned
 
 ## Usage
 
-Run `./ungelify` with no arguments (or `./ungelify -h`) to display a helpful message on the command's syntax. You can
+Run `./ungelify`/`cargo run` with no arguments (or `./ungelify -h`/`cargo run -- -h`) to display a helpful message on the command's syntax. You can
 also run `./ungelify help <subcommand>` to display the subcommand's usage as well.
 
 ### List
