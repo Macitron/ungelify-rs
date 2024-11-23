@@ -44,6 +44,8 @@ extension, a directory is created with the name `<archive_filename>.d`.
 
 You can optionally supply the `-o | --output-dir <DIRECTORY>` flag to extract entries to `DIRECTORY` instead.
 
+Glob matching is supported for specifying which entries to extract.
+
 ```shell
 $ ./ungelify extract script.mpk
 $ ls script
@@ -55,6 +57,14 @@ MACROSYS.SCX     SG02_10.SCX      SG04_05.SCX      SG05_08.SCX
 $ ./ungelify x script.mpk -o ./extracted-entries SG04_17.SCX SG06_02.SCX
 $ ls extracted-entries
 SG04_17.SCX SG06_02.SCX
+
+# Globs have to be quoted, else the shell will expand them into files that likely don't exist and fail
+$ ./ungelify ex chara.mpk 'KUN_A*.png'
+$ ls chara
+KUN_ALA.png KUN_AMA.png KUN_ASA.png KUN_AXA.png
+KUN_ALB.png KUN_AMB.png KUN_ASB.png KUN_AXB.png
+KUN_ALC.png KUN_AMC.png KUN_ASC.png KUN_AXC.png
+KUN_ALD.png KUN_AMD.png KUN_ASD.png KUN_AXD.png
 ```
 
 ### Replace
