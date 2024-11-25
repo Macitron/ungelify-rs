@@ -28,27 +28,6 @@ pub struct MagesArchive {
 impl MagesArchive {
     pub const SIGNATURE: &'static [u8] = b"MPK\0";
 
-    // the amount of padding needed between the end of the header info (signature, version, header
-    // count) and the start of the entry headers. the entry header section always starts at either
-    // 0x40 or 0x44 (for v1 or v2, respectively), so we can calculate how much padding is needed to
-    // get there:
-    //
-    // old                          new
-    //   4 bytes signature            4 bytes signature
-    // + 2 bytes minor ver          + 2 bytes minor ver
-    // + 2 bytes major ver          + 2 bytes major ver
-    // + 4 bytes entry count        + 8 bytes entry count
-    // = 12 bytes                   = 16 bytes
-    //
-    // first entry offset = 0x40 = 64 if old
-    //                    = 0x44 = 68 if new
-    //
-    // padding = 64 - 12 = 52 if old
-    //         = 68 - 16 = 52 if new
-    //
-    // so we always need 52 bytes of 0 padding.
-    const HEADER_PADDING: [u8; 52] = [0u8; 52];
-
     const FIRST_ENTRY_HEADER_OFFSET: u64 = 0x40;
 
     pub fn build<P: AsRef<Path>>(
@@ -184,8 +163,6 @@ impl MagesArchive {
         } else {
             writer.write_u64::<LE>(self.entry_count)?;
         }
-
-        writer.write_all(&Self::HEADER_PADDING)?;
 
         Ok(())
     }
