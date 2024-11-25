@@ -425,6 +425,16 @@ impl MagesEntry {
             .truncate(true)
             .create(true)
             .open(&entry_path)?;
+        println!(
+            "ungelify: extracting{} file '{}'",
+            if self.is_compressed() {
+                " compressed"
+            } else {
+                ""
+            },
+            self.name()
+        );
+
         let mut writer = BufWriter::new(entry_file);
 
         reader.seek(SeekFrom::Start(self.offset))?;
@@ -490,6 +500,16 @@ impl MagesEntry {
         writer: &mut W,
         source_len: Option<u64>, // None if not replacing with contents of a file
     ) -> Result<Self, Box<dyn Error>> {
+        println!(
+            "ungelify: writing{} file '{}'",
+            if self.is_compressed() {
+                " compressed"
+            } else {
+                ""
+            },
+            self.name()
+        );
+
         let new_offset = writer.stream_position()?;
 
         let len_uncompressed;
