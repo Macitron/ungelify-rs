@@ -49,6 +49,8 @@ impl MagesArchive {
     // so we always need 52 bytes of 0 padding.
     const HEADER_PADDING: [u8; 52] = [0u8; 52];
 
+    const FIRST_ENTRY_HEADER_OFFSET: u64 = 0x40;
+
     pub fn build<P: AsRef<Path>>(
         mut reader: BufReader<File>,
         path: P,
@@ -72,12 +74,9 @@ impl MagesArchive {
         let mut entry_name_map = HashMap::with_capacity(entries.capacity());
         for idx in 0..entry_count {
             let entry_header_offset =
-                version.first_entry_header_offset() + (idx * MagesEntry::HEADER_LENGTH);
-            let entry = MagesEntry::read_at_offset(
-                entry_header_offset,
-                &mut reader,
-                version.is_old_format,
-            )?;
+                Self::FIRST_ENTRY_HEADER_OFFSET + (idx * MagesEntry::HEADER_LENGTH);
+            reader.seek(SeekFrom::Start(entry_header_offset))?;
+            let entry = MagesEntry::read(&mut reader, &version)?;
 
             // there's a known issue where some archives just straight up lie about how many entries
             // they have and at least one entry header is all 0s.
@@ -325,9 +324,9 @@ impl Archive for MagesArchive {
         // leads to kind of a chicken-or-egg problem where the offsets are ill-defined til they're
         // actually written. maybe we can get clever with it and calculate the length + number of
         // blocks ahead of time, but that might not play well with compression idk
-        temp_writer.seek(SeekFrom::Start(self.version.first_entry_header_offset()))?;
+        temp_writer.seek(SeekFrom::Start(Self::FIRST_ENTRY_HEADER_OFFSET))?;
         for entry in new_entries.values() {
-            entry.write_header(&mut temp_writer, self.version.is_old_format)?;
+            entry.write_header(&mut temp_writer, &self.version)?;
         }
 
         // overwrite contents of the MPK with the temp file
@@ -372,18 +371,14 @@ impl MpkVersion {
             })
         }
     }
-
-    const fn first_entry_header_offset(&self) -> u64 {
-        if self.is_old_format {
-            0x40
-        } else {
-            0x44
-        }
-    }
 }
 
 #[derive(Debug)]
 pub struct MagesEntry {
+    // not entirely clear how these first 4 bytes of the entry header is used, but it seems to be
+    // 1u32 if the entry is compressed and 0 otherwise. alignment shenanigans?
+    // for v1 archives this doesn't exist, the header starts right at the entry id
+    compression_indicator: u32,
     id: u32,
     offset: u64,
     // might want to revisit eventually, reading/writing raw bytes as a UTF-8 string seems hairy
@@ -400,19 +395,22 @@ impl MagesEntry {
         &self.name
     }
 
-    fn read_at_offset<R: Read + Seek>(
-        offset: u64,
+    fn read<R: Read + Seek>(
         mpk_reader: &mut R,
-        is_old_format: bool,
+        version: &MpkVersion,
     ) -> Result<Self, Box<dyn Error>> {
-        mpk_reader.seek(SeekFrom::Start(offset))?;
+        let compression_indicator = if version.is_old_format {
+            0
+        } else {
+            mpk_reader.read_u32::<LE>()?
+        };
 
         let id = mpk_reader.read_u32::<LE>()?;
         let offset: u64;
         let len_compressed: u64;
         let len_uncompressed: u64;
 
-        if is_old_format {
+        if version.is_old_format {
             offset = u64::from(mpk_reader.read_u32::<LE>()?);
             len_compressed = u64::from(mpk_reader.read_u32::<LE>()?);
             len_uncompressed = u64::from(mpk_reader.read_u32::<LE>()?);
@@ -426,6 +424,7 @@ impl MagesEntry {
         let name = vfs::read_cstring(mpk_reader)?;
 
         Ok(Self {
+            compression_indicator,
             id,
             offset,
             name,
@@ -435,7 +434,7 @@ impl MagesEntry {
     }
 
     const fn is_compressed(&self) -> bool {
-        self.len != self.len_compressed
+        self.compression_indicator != 0
     }
 
     fn extract<R: Read + Seek, P: AsRef<Path>>(
@@ -474,13 +473,17 @@ impl MagesEntry {
     fn write_header<W: Write + Seek>(
         &self,
         writer: &mut W,
-        is_old_format: bool,
+        version: &MpkVersion,
     ) -> Result<(), Box<dyn Error>> {
         let header_offset = writer.stream_position()?;
 
+        if !version.is_old_format {
+            writer.write_u32::<LE>(self.compression_indicator)?;
+        }
+
         writer.write_u32::<LE>(self.id)?;
 
-        if is_old_format {
+        if version.is_old_format {
             writer.write_u32::<LE>(u32::try_from(self.offset)?)?;
             writer.write_u32::<LE>(u32::try_from(self.len_compressed)?)?;
             writer.write_u32::<LE>(u32::try_from(self.len)?)?;
