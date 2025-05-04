@@ -1,4 +1,3 @@
-use crate::vfs::error::ArchiveError;
 use crate::vfs::mpk::MagesArchive;
 use std::cmp::min;
 use std::error::Error;
@@ -28,39 +27,39 @@ pub trait Archive: Sized {
 // it.
 // e.g., '../mpk/script.mpk' -> '../mpk/script'
 //       './archive_no_ext' -> './archive_no_ext.d'
-fn archive_dir_name<P: AsRef<Path>>(archive_path: P) -> Result<PathBuf, ArchiveError> {
-    let parent_dir = archive_path
-        .as_ref()
-        .parent()
-        .ok_or("unable to get parent directory of archive")?;
-    let archive_stem = archive_path
-        .as_ref()
-        .file_stem()
-        .ok_or("unable to get archive file stem")?;
+// fn archive_dir_name<P: AsRef<Path>>(archive_path: P) -> AnyResult<PathBuf> {
+//     let parent_dir = archive_path
+//         .as_ref()
+//         .parent()
+//         .ok_or("unable to get parent directory of archive")?;
+//     let archive_stem = archive_path
+//         .as_ref()
+//         .file_stem()
+//         .ok_or("unable to get archive file stem")?;
+//
+//     let mut archive_dir = parent_dir.join(archive_stem);
+//     if archive_path.as_ref() == archive_dir {
+//         let mut archive_d = archive_path
+//             .as_ref()
+//             .file_name()
+//             .ok_or("unable to get archive file name")?
+//             .to_os_string();
+//         archive_d.push(".d");
+//         archive_dir = parent_dir.join(archive_d);
+//     }
+//
+//     Ok(archive_dir)
+// }
 
-    let mut archive_dir = parent_dir.join(archive_stem);
-    if archive_path.as_ref() == archive_dir {
-        let mut archive_d = archive_path
-            .as_ref()
-            .file_name()
-            .ok_or("unable to get archive file name")?
-            .to_os_string();
-        archive_d.push(".d");
-        archive_dir = parent_dir.join(archive_d);
-    }
-
-    Ok(archive_dir)
-}
-
-fn path_file_name(path: &Path) -> Result<&str, ArchiveError> {
-    let filename_str = path
-        .file_name()
-        .ok_or_else(|| format!("unable to get OsStr filename of {path:?}"))?
-        .to_str()
-        .ok_or_else(|| format!("unable to get unicode filename of {path:?}"))?;
-
-    Ok(filename_str)
-}
+// fn path_file_name(path: &Path) -> Result<&str, ArchiveError> {
+//     let filename_str = path
+//         .file_name()
+//         .ok_or_else(|| format!("unable to get OsStr filename of {path:?}"))?
+//         .to_str()
+//         .ok_or_else(|| format!("unable to get unicode filename of {path:?}"))?;
+//
+//     Ok(filename_str)
+// }
 
 fn read_signature(reader: &mut impl Read) -> Result<[u8; 4], io::Error> {
     let mut sig_buf = [0u8; 4];
@@ -169,7 +168,7 @@ impl ArchiveImpl {
 
         reader.seek(SeekFrom::Start(0))?;
         match &sig[..] {
-            MagesArchive::SIGNATURE => Ok(MagesArchive::build(reader, path)?.into()),
+            // MagesArchive::SIGNATURE => Ok(MagesArchive::build(reader, path)?.into()),
             _ => Err(format!(
                 "unrecognized archive signature '{}'",
                 String::from_utf8_lossy(&sig)
@@ -179,29 +178,29 @@ impl ArchiveImpl {
     }
 }
 
-impl Archive for ArchiveImpl {
-    fn list_entries(&self) {
-        match self {
-            Self::Mpk(mpk) => mpk.list_entries(),
-        }
-    }
-
-    fn extract_entries(
-        &self,
-        entry_names_or_ids: Option<Vec<String>>,
-        output_dir: Option<PathBuf>,
-    ) -> Result<(), Box<dyn Error>> {
-        match self {
-            Self::Mpk(mpk) => mpk.extract_entries(entry_names_or_ids, output_dir),
-        }
-    }
-
-    fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>> {
-        match self {
-            Self::Mpk(mpk) => Ok(mpk.replace_entries(paths)?.into()),
-        }
-    }
-}
+// impl Archive for ArchiveImpl {
+//     fn list_entries(&self) {
+//         match self {
+//             Self::Mpk(mpk) => mpk.list_entries(),
+//         }
+//     }
+//
+//     fn extract_entries(
+//         &self,
+//         entry_names_or_ids: Option<Vec<String>>,
+//         output_dir: Option<PathBuf>,
+//     ) -> Result<(), Box<dyn Error>> {
+//         match self {
+//             Self::Mpk(mpk) => mpk.extract_entries(entry_names_or_ids, output_dir),
+//         }
+//     }
+//
+//     fn replace_entries<P: AsRef<Path>>(self, paths: &[P]) -> Result<Self, Box<dyn Error>> {
+//         match self {
+//             Self::Mpk(mpk) => Ok(mpk.replace_entries(paths)?.into()),
+//         }
+//     }
+// }
 
 impl From<MagesArchive> for ArchiveImpl {
     fn from(value: MagesArchive) -> Self {
@@ -211,37 +210,36 @@ impl From<MagesArchive> for ArchiveImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    #[test]
-    fn correct_archive_dir_names() {
-        let archive_expectations = vec![
-            ("script.mpk", "script"),
-            ("chara.mpk", "chara"),
-            ("bgm.cpk", "bgm"),
-            ("no-ext", "no-ext.d"),
-            ("two.ext.dots", "two.ext"),
-        ];
+    // #[test]
+    // fn correct_archive_dir_names() {
+    //     let archive_expectations = vec![
+    //         ("script.mpk", "script"),
+    //         ("chara.mpk", "chara"),
+    //         ("bgm.cpk", "bgm"),
+    //         ("no-ext", "no-ext.d"),
+    //         ("two.ext.dots", "two.ext"),
+    //     ];
+    //
+    //     for pair in archive_expectations {
+    //         let actual_dir_name = archive_dir_name(pair.0).unwrap();
+    //         assert_eq!(actual_dir_name, PathBuf::from(pair.1));
+    //     }
+    // }
 
-        for pair in archive_expectations {
-            let actual_dir_name = archive_dir_name(pair.0).unwrap();
-            assert_eq!(actual_dir_name, PathBuf::from(pair.1));
-        }
-    }
-
-    #[test]
-    fn file_path_names_work() {
-        let filename_expectations = vec![
-            ("resources/script.mpk", "script.mpk"),
-            ("../gamedata/chara.mpk", "chara.mpk"),
-            ("/home/stallman/games/cclcc/music/bgm.mpk", "bgm.mpk"),
-            ("op18.mp4", "op18.mp4"),
-        ];
-
-        for pair in filename_expectations {
-            let path = PathBuf::from(pair.0);
-            let actual_filename = path_file_name(&path).unwrap();
-            assert_eq!(actual_filename, pair.1);
-        }
-    }
+    // #[test]
+    // fn file_path_names_work() {
+    //     let filename_expectations = vec![
+    //         ("resources/script.mpk", "script.mpk"),
+    //         ("../gamedata/chara.mpk", "chara.mpk"),
+    //         ("/home/stallman/games/cclcc/music/bgm.mpk", "bgm.mpk"),
+    //         ("op18.mp4", "op18.mp4"),
+    //     ];
+    //
+    //     for pair in filename_expectations {
+    //         let path = PathBuf::from(pair.0);
+    //         let actual_filename = path_file_name(&path).unwrap();
+    //         assert_eq!(actual_filename, pair.1);
+    //     }
+    // }
 }

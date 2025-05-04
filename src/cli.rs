@@ -57,7 +57,7 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     match cli.command {
         Commands::List { archive_path } => {
             let archive = ArchiveImpl::open(&archive_path)?;
-            archive.list_entries();
+            // archive.list_entries();
         }
         Commands::Extract {
             archive_path,
@@ -65,14 +65,14 @@ pub fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             output_dir,
         } => {
             let archive = ArchiveImpl::open(&archive_path)?;
-            archive.extract_entries(entries, output_dir)?;
+            // archive.extract_entries(entries, output_dir)?;
         }
         Commands::Replace {
             archive_path,
             replacement_files,
         } => {
             let archive = ArchiveImpl::open(&archive_path)?;
-            archive.replace_entries(&replacement_files)?;
+            // archive.replace_entries(&replacement_files)?;
         }
     }
 
