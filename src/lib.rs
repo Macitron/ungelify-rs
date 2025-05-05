@@ -3,4 +3,4 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 
-pub mod vfs;
+pub mod mpk;

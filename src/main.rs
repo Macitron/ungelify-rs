@@ -1,14 +1,9 @@
-use clap::Parser;
-use cli::Cli;
-use std::process;
-
-mod cli;
+use std::fs::File;
+use std::io::BufReader;
+use ungelify::mpk::MagesArchive;
 
 fn main() {
-    let args = Cli::parse();
-
-    if let Err(e) = cli::run(args) {
-        eprintln!("ungelify: {e}");
-        process::exit(1);
-    }
+    let mut reader = BufReader::new(File::open("resources/chara.mpk").unwrap());
+    let mpk = MagesArchive::build(&mut reader);
+    println!("mpk: {mpk:#?}");
 }
