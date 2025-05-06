@@ -1,9 +1,11 @@
 use bincode::config::{Configuration as BincodeConfig, Fixint, LittleEndian};
 use bincode::Decode;
 use bytesize::ByteSize;
+use flate2::read::ZlibDecoder;
 use indexmap::IndexMap;
 use std::ffi::CStr;
-use std::io::Read;
+use std::io;
+use std::io::{Read, Write};
 
 #[derive(Debug)]
 pub struct MagesArchive {
@@ -121,6 +123,18 @@ impl MagesArchive {
                 ByteSize::b(entry.len_deflated),
                 entry.offset
             );
+        }
+    }
+}
+
+impl MagesEntry {
+    pub fn extract<R: Read, W: Write>(&self, reader: &mut R, writer: &mut W) {
+        let mut reader = reader.take(self.len_compressed);
+        if self.is_compressed {
+            let mut zlib_reader = ZlibDecoder::new(reader);
+            io::copy(&mut zlib_reader, writer).expect("failed to copy entry from zlib reader");
+        } else {
+            io::copy(&mut reader, writer).expect("failed to copy entry from reader");
         }
     }
 }

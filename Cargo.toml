@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 bincode = "2.0.1"
 bytesize = "2.0.1"
+flate2 = { version = "1.1.1", default-features = false, features = ["zlib-rs"] }
 indexmap = "2.9.0"
