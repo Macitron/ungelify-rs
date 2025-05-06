@@ -5,5 +5,5 @@ use ungelify::mpk::MagesArchive;
 fn main() {
     let mut reader = BufReader::new(File::open("resources/chara.mpk").unwrap());
     let mpk = MagesArchive::build(&mut reader);
-    println!("mpk: {mpk:#?}");
+    mpk.list_entries();
 }

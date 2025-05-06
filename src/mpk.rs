@@ -1,12 +1,9 @@
 use bincode::config::{Configuration as BincodeConfig, Fixint, LittleEndian};
 use bincode::Decode;
+use bytesize::ByteSize;
 use indexmap::IndexMap;
 use std::ffi::CStr;
 use std::io::Read;
-
-// Structs prefixed with "Mages" are logical representations, while those
-// prefixed with "Mpk" are the byte representations to be used with bincode and
-// converted between each other for v1 and v2.
 
 #[derive(Debug)]
 pub struct MagesArchive {
@@ -22,6 +19,9 @@ struct MagesEntry {
     len_compressed: u64,
     is_compressed: bool,
 }
+
+// Structs prefixed with Mpk are byte representations of data as they appear in .mpk files, to be
+// used and deserialized with bincode.
 
 #[derive(Debug, Decode)]
 struct MpkHeader {
@@ -70,7 +70,6 @@ impl MagesArchive {
 
     pub fn build<R: Read>(reader: &mut R) -> Self {
         let header: MpkHeader = read_from_file(reader);
-        println!("{header:#?}");
         assert_eq!(header.signature, Self::MPK_SIG, "invalid MPK signature");
         let is_old_format = header.ver_major == 1;
 
@@ -106,6 +105,23 @@ impl MagesArchive {
         }
 
         Self { entries }
+    }
+
+    #[allow(clippy::print_literal)] // readability >>>
+    pub fn list_entries(&self) {
+        println!("{:<5} {:<20} {:<12} {}", "ID", "Name", "Size", "Offset");
+        println!("================================================");
+
+        // TODO make an iterator for entries
+        for entry in self.entries.values() {
+            println!(
+                "{:<5} {:<20} {:<12} 0x{:x}",
+                entry.id,
+                entry.name,
+                ByteSize::b(entry.len_deflated),
+                entry.offset
+            );
+        }
     }
 }
 

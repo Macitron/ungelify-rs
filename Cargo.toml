@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 bincode = "2.0.1"
+bytesize = "2.0.1"
 indexmap = "2.9.0"
