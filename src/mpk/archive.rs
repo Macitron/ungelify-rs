@@ -1,6 +1,7 @@
 use crate::mpk::bytes;
 use crate::mpk::bytes::{MpkEntryV1, MpkEntryV2, MpkHeader};
 use crate::mpk::entry::MagesEntry;
+use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
 use indexmap::IndexMap;
 use std::io::Read;
@@ -52,13 +53,17 @@ impl MagesArchive {
         Self { entries }
     }
 
+    #[must_use]
+    pub fn iter(&self) -> Entries {
+        Entries::new(&self.entries)
+    }
+
     #[allow(clippy::print_literal)] // readability >>>
     pub fn list_entries(&self) {
         println!("{:<5} {:<20} {:<12} {}", "ID", "Name", "Size", "Offset");
         println!("================================================");
 
-        // TODO make an iterator for entries
-        for entry in self.entries.values() {
+        for entry in self {
             println!(
                 "{:<5} {:<20} {:<12} 0x{:x}",
                 entry.id(),
@@ -67,5 +72,14 @@ impl MagesArchive {
                 entry.offset()
             );
         }
+    }
+}
+
+impl<'a> IntoIterator for &'a MagesArchive {
+    type Item = &'a MagesEntry;
+    type IntoIter = Entries<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
