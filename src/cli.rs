@@ -33,6 +33,8 @@ pub enum Cmd {
     Extract {
         #[arg(value_name = "ARCHIVE", help = "The archive to extract")]
         archive_path: PathBuf,
+        #[arg(short, long, help = "Output directory for extracted files")]
+        output_dir: Option<PathBuf>,
     },
 }
 
@@ -59,10 +61,14 @@ pub fn run(cli: Cli) {
             let mpk = MagesArchive::build(&mut reader);
             mpk.list_entries();
         }
-        Cmd::Extract { archive_path } => {
+        Cmd::Extract {
+            archive_path,
+            output_dir,
+        } => {
             assert!(archive_path.is_file());
             let parent_dir = archive_path.parent().unwrap();
-            let output_dir = parent_dir.join(archive_output_dir(&archive_path));
+            let output_dir =
+                output_dir.unwrap_or_else(|| parent_dir.join(archive_output_dir(&archive_path)));
             fs::create_dir_all(&output_dir).unwrap();
 
             let mut reader = BufReader::new(File::open(&archive_path).unwrap());
