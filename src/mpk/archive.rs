@@ -4,11 +4,13 @@ use crate::mpk::entry::MagesEntry;
 use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::io::Read;
 
 #[derive(Debug)]
 pub struct MagesArchive {
-    pub(crate) entries: IndexMap<u32, MagesEntry>,
+    entries: IndexMap<u32, MagesEntry>,
+    names_to_ids: HashMap<String, u32>,
 }
 
 impl MagesArchive {
@@ -23,6 +25,9 @@ impl MagesArchive {
         // least want to give it the most capacity possible
         #[allow(clippy::cast_possible_truncation)]
         let mut entries = IndexMap::with_capacity(header.entry_count as usize);
+        #[allow(clippy::cast_possible_truncation)]
+        let mut names_to_ids = HashMap::with_capacity(header.entry_count as usize);
+
         for _ in 0..header.entry_count {
             let entry: MagesEntry = if is_old_format {
                 let v1_entry: MpkEntryV1 = bytes::read_from_file(reader);
@@ -47,15 +52,31 @@ impl MagesArchive {
                 continue;
             }
 
+            names_to_ids.insert(entry.name().to_string(), entry.id());
             entries.insert(entry.id(), entry);
         }
 
-        Self { entries }
+        Self {
+            entries,
+            names_to_ids,
+        }
     }
 
     #[must_use]
     pub fn iter(&self) -> Entries {
         Entries::new(&self.entries)
+    }
+
+    #[must_use]
+    pub fn get_entry_by_id(&self, id: u32) -> Option<&MagesEntry> {
+        self.entries.get(&id)
+    }
+
+    #[must_use]
+    pub fn get_entry_by_name(&self, name: &str) -> Option<&MagesEntry> {
+        self.names_to_ids
+            .get(name)
+            .and_then(|id| self.get_entry_by_id(*id))
     }
 
     #[allow(clippy::print_literal)] // readability >>>
@@ -64,6 +85,7 @@ impl MagesArchive {
         println!("================================================");
 
         for entry in self {
+            // TODO implement Display for entries
             println!(
                 "{:<5} {:<20} {:<12} 0x{:x}",
                 entry.id(),
