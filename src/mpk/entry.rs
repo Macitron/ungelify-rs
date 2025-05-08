@@ -11,7 +11,7 @@ pub struct MagesEntry {
     offset: u64,
     len_deflated: u64,
     len_compressed: u64,
-    is_compressed: bool,
+    pub(super) cpr_indicator: u32,
 }
 
 impl MagesEntry {
@@ -27,6 +27,11 @@ impl MagesEntry {
     }
 
     #[must_use]
+    pub const fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    #[must_use]
     pub const fn len_deflated(&self) -> u64 {
         self.len_deflated
     }
@@ -37,13 +42,13 @@ impl MagesEntry {
     }
 
     #[must_use]
-    pub const fn offset(&self) -> u64 {
-        self.offset
+    pub const fn is_compressed(&self) -> bool {
+        self.len_compressed != self.len_deflated
     }
 
     pub fn extract<R: Read, W: Write>(&self, reader: &mut R, writer: &mut W) {
         let mut reader = reader.take(self.len_compressed);
-        if self.is_compressed {
+        if self.is_compressed() {
             let mut zlib_reader = ZlibDecoder::new(reader);
             io::copy(&mut zlib_reader, writer).expect("failed to copy entry from zlib reader");
         } else {
@@ -60,7 +65,7 @@ impl From<MpkEntryV1> for MagesEntry {
             offset: u64::from(entry.offset),
             len_deflated: u64::from(entry.len_deflated),
             len_compressed: u64::from(entry.len_compressed),
-            is_compressed: false,
+            cpr_indicator: 0,
         }
     }
 }
@@ -73,7 +78,7 @@ impl From<MpkEntryV2> for MagesEntry {
             offset: entry.offset,
             len_deflated: entry.len_deflated,
             len_compressed: entry.len_compressed,
-            is_compressed: entry.len_compressed != entry.len_deflated,
+            cpr_indicator: entry.cpr_indicator,
         }
     }
 }
