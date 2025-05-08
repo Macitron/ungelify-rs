@@ -4,35 +4,35 @@ use std::ffi::CStr;
 use std::io::Read;
 
 #[derive(Debug, Decode)]
-pub struct MpkHeader {
-    pub(super) signature: [u8; 4],
+pub(super) struct MpkHeader {
+    pub signature: [u8; 4],
     _ver_minor: u16,
-    pub(super) ver_major: u16,
-    pub(super) entry_count: u64,
+    pub ver_major: u16,
+    pub entry_count: u64,
     _padding: [u8; 0x30],
 }
 
 #[derive(Debug, Decode)]
-pub struct MpkEntryV1 {
-    pub(super) id: u32,
-    pub(super) offset: u32,
-    pub(super) len_compressed: u32,
-    pub(super) len_deflated: u32,
+pub(super) struct MpkEntryV1 {
+    pub id: u32,
+    pub offset: u32,
+    pub len_compressed: u32,
+    pub len_deflated: u32,
     _padding: [u8; 16],
     //   256 bytes per entry header
     // -  32 bytes for other data
     // = 224 bytes max for string
-    pub(super) name: [u8; 224],
+    pub name: [u8; 224],
 }
 
 #[derive(Debug, Decode)]
-pub struct MpkEntryV2 {
+pub(super) struct MpkEntryV2 {
     _cpr_indicator: u32,
-    pub(super) id: u32,
-    pub(super) offset: u64,
-    pub(super) len_compressed: u64,
-    pub(super) len_deflated: u64,
-    pub(super) name: [u8; 224],
+    pub id: u32,
+    pub offset: u64,
+    pub len_compressed: u64,
+    pub len_deflated: u64,
+    pub name: [u8; 224],
 }
 
 type MpkConfig = BincodeConfig<LittleEndian, Fixint>;
