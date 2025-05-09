@@ -1,6 +1,8 @@
 use crate::mpk::bytes;
 use crate::mpk::bytes::{MpkEntryV1, MpkEntryV2};
 use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
 use std::io;
 use std::io::{Read, Write};
 
@@ -53,6 +55,23 @@ impl MagesEntry {
             io::copy(&mut zlib_reader, writer).expect("failed to copy entry from zlib reader");
         } else {
             io::copy(&mut reader, writer).expect("failed to copy entry from reader");
+        }
+    }
+
+    /// Writes the contents of `reader` into `writer` to replace the contents of
+    /// an entry, performing zlib compression if this entry was originally compressed.
+    ///
+    /// Returns the number of bytes written to `writer`, functionally equivalent
+    /// to `len_compressed`.
+    pub fn repack<R: Read, W: Write>(&self, reader: &mut R, writer: &mut W) -> u64 {
+        if self.is_compressed() {
+            let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
+            let written_bytes =
+                io::copy(reader, &mut zlib_writer).expect("failed to copy entry from reader");
+            zlib_writer.finish().expect("failed to finish zlib writer");
+            written_bytes
+        } else {
+            io::copy(reader, writer).expect("failed to copy entry from reader")
         }
     }
 }
