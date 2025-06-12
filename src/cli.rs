@@ -9,7 +9,7 @@ use ungelify::mpk::MagesArchive;
 #[command(
     name = "ungelify",
     version,
-    about = "A CLI tool for extracting and repacking Mages/Criware archives"
+    about = "A CLI tool for extracting and repacking MAGES archives."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -23,7 +23,7 @@ pub enum Cmd {
         arg_required_else_help = true,
         aliases = ["l", "ls", "list-contents"])]
     List {
-        #[arg(value_name = "ARCHIVE", help = "Path to the archive")]
+        #[arg(value_name = "ARCHIVE", help = "The path to the archive.")]
         archive_path: PathBuf,
     },
     #[command(
@@ -31,11 +31,18 @@ pub enum Cmd {
         arg_required_else_help = true,
         aliases = ["x", "ex"])]
     Extract {
-        #[arg(value_name = "ARCHIVE", help = "Path to the archive")]
+        #[arg(value_name = "ARCHIVE", help = "The path to the archive.")]
         archive_path: PathBuf,
-        #[arg(value_name = "ENTRIES", help = "Entry names/globs/IDs to extract")]
+        #[arg(
+            value_name = "ENTRIES",
+            help = "Choose specific entry names/globs/IDs to extract."
+        )]
         entries: Vec<String>,
-        #[arg(short, long, help = "Output directory for extracted files")]
+        #[arg(
+            short,
+            long,
+            help = "The output directory for extracted files.\nWill be created if it does not exist."
+        )]
         output_dir: Option<PathBuf>,
     },
 }
