@@ -4,17 +4,23 @@ use crate::mpk::entry::MagesEntry;
 use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
 use indexmap::IndexMap;
-use std::collections::HashMap;
-use std::io::Read;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct MagesArchive {
     entries: IndexMap<u32, MagesEntry>,
     names_to_ids: HashMap<String, u32>,
+    // Bookkeeping needed for repacking
+    pub(super) ver_major: u16,
+    pub(super) ver_minor: u16,
+    pub(super) og_entry_count: u64,
 }
 
 impl MagesArchive {
-    const MPK_SIG: &'static [u8] = b"MPK\0";
+    pub const MPK_SIG: &'static [u8] = b"MPK\0";
 
     pub fn build<R: Read>(reader: &mut R) -> Self {
         let header: MpkHeader = bytes::read_from_file(reader);
@@ -93,6 +99,60 @@ impl MagesArchive {
                 ByteSize::b(entry.len_deflated()),
                 entry.offset()
             );
+        }
+    }
+
+    fn write_header<W: Write>(&self, writer: &mut W) {
+        let header: MpkHeader = self.into();
+        bytes::write_struct(writer, header);
+    }
+
+    // pub fn repack<R: Read, W: Write + Seek, P: AsRef<Path>>(
+    pub fn repack<R, W, P>(
+        &self,
+        orig_reader: &mut R,
+        rpk_writer: &mut W,
+        replace_files: &[P],
+    ) -> Self
+    where
+        R: Read,
+        W: Write + Seek,
+        P: AsRef<Path>,
+    {
+        // turning the paths into a hashset makes it faster to tell whether we should be repacking a
+        // given entry
+        let replace_files = replace_files
+            .iter()
+            .map(|path| path.as_ref().to_path_buf())
+            .collect::<HashSet<_>>();
+
+        self.write_header(rpk_writer);
+
+        let mut entries = self.iter().peekable();
+        let first_offset = entries.peek().expect("entries empty, can't peek").offset();
+        rpk_writer.seek(SeekFrom::Start(first_offset)).unwrap();
+
+        let mut rpk_entries = IndexMap::with_capacity(entries.len());
+        while let Some(entry) = entries.next() {
+            let cur_offset = rpk_writer.stream_position().unwrap();
+            let entry_path = Path::new(entry.name());
+
+            let (src_len, bytes_written) = if replace_files.contains(entry_path) {
+                let rpk_file = File::open(entry_path).unwrap();
+                let src_len = rpk_file.metadata().unwrap().len();
+                let mut rpk_reader = BufReader::new(rpk_file);
+                let bytes_written =
+                    entry.repack(&mut rpk_reader, rpk_writer, entries.peek().is_some());
+
+                (src_len, bytes_written)
+            } else {
+                let mut entry_reader = orig_reader.take(entry.len_compressed());
+                let bytes_written = entry.repack(&mut entry_reader, rpk_writer, entries.peek().is_some());
+
+                (entry.len_deflated(), bytes_written)
+            };
+            
+            0
         }
     }
 }

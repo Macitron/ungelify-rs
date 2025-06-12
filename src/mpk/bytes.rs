@@ -1,10 +1,10 @@
-use crate::mpk::MagesEntry;
+use crate::mpk::{MagesArchive, MagesEntry};
 use bincode::config::{Configuration as BincodeConfig, Fixint, LittleEndian};
-use bincode::Decode;
+use bincode::{Decode, Encode};
 use std::ffi::CStr;
-use std::io::Read;
+use std::io::{Read, Write};
 
-#[derive(Debug, Decode)]
+#[derive(Debug, Decode, Encode)]
 pub(super) struct MpkHeader {
     pub signature: [u8; 4],
     _ver_minor: u16,
@@ -47,12 +47,39 @@ pub fn read_from_file<D: Decode<()>, R: Read>(reader: &mut R) -> D {
         .expect("failed to decode")
 }
 
+pub fn write_struct<E: Encode, W: Write>(writer: &mut W, value: E) {
+    bincode::encode_into_std_write::<E, MpkConfig, W>(value, writer, BINCODE_CONFIG)
+        .expect("failed to encode");
+}
+
+const PADDING_BUF: [u8; 2048] = [0; 2048];
+pub fn write_alignment_padding<W: Write>(writer: &mut W, bytes_written: u64) {
+    if bytes_written % 2048 == 0 && bytes_written != 0 {
+        return;
+    }
+    
+    let padding_len = 2048 - (bytes_written % 2048) as usize;
+    writer.write_all(&PADDING_BUF[..padding_len]).unwrap();
+}
+
 pub fn entry_name_from_bytes(name: &[u8]) -> String {
     CStr::from_bytes_until_nul(name)
         .unwrap()
         .to_str()
         .unwrap()
         .into()
+}
+
+impl From<&MagesArchive> for MpkHeader {
+    fn from(ar: &MagesArchive) -> Self {
+        Self {
+            signature: MagesArchive::MPK_SIG.try_into().unwrap(),
+            _ver_minor: ar.ver_minor,
+            ver_major: ar.ver_major,
+            entry_count: ar.og_entry_count,
+            _padding: [0; 0x30],
+        }
+    }
 }
 
 impl From<MagesEntry> for MpkEntryV1 {

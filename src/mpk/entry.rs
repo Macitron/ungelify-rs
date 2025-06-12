@@ -63,16 +63,28 @@ impl MagesEntry {
     ///
     /// Returns the number of bytes written to `writer`, functionally equivalent
     /// to `len_compressed`.
-    pub fn repack<R: Read, W: Write>(&self, reader: &mut R, writer: &mut W) -> u64 {
-        if self.is_compressed() {
+    pub fn repack<R: Read, W: Write>(
+        &self,
+        reader: &mut R,
+        writer: &mut W,
+        write_padding: bool,
+    ) -> u64 {
+        let (bytes_written, writer) = if self.is_compressed() {
             let mut zlib_writer = ZlibEncoder::new(writer, Compression::default());
-            let written_bytes =
+            let bytes_written =
                 io::copy(reader, &mut zlib_writer).expect("failed to copy entry from reader");
-            zlib_writer.finish().expect("failed to finish zlib writer");
-            written_bytes
+            let inner_writer = zlib_writer.finish().expect("failed to finish zlib writer");
+            (bytes_written, inner_writer)
         } else {
-            io::copy(reader, writer).expect("failed to copy entry from reader")
+            let bytes_written = io::copy(reader, writer).expect("failed to copy entry from reader");
+            (bytes_written, writer)
+        };
+        
+        if write_padding {
+            bytes::write_alignment_padding(writer, bytes_written);
         }
+        
+        bytes_written
     }
 }
 
