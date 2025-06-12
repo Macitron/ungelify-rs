@@ -3,8 +3,9 @@ use crate::mpk::bytes::{MpkEntryV1, MpkEntryV2, MpkHeader};
 use crate::mpk::entry::MagesEntry;
 use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
+use globset::{Glob, GlobSetBuilder};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -98,12 +99,52 @@ impl MagesArchive {
         }
     }
 
+    // Helps with the actual extraction for an entry since the basic functionality is shared
+    // between extract() and extract_entries()
+    fn do_extraction<R: Read + Seek, P: AsRef<Path>>(
+        entry: &MagesEntry,
+        reader: &mut R,
+        output_dir: P,
+    ) {
+        reader.seek(SeekFrom::Start(entry.offset())).unwrap();
+        let extract_path = output_dir.as_ref().join(entry.name());
+        let mut writer = BufWriter::new(File::create(&extract_path).unwrap());
+        entry.extract(reader, &mut writer);
+    }
+
     pub fn extract<R: Read + Seek, P: AsRef<Path>>(&self, reader: &mut R, output_dir: P) {
         for entry in self {
-            reader.seek(SeekFrom::Start(entry.offset())).unwrap();
-            let extract_path = output_dir.as_ref().join(entry.name());
-            let mut writer = BufWriter::new(File::create(&extract_path).unwrap());
-            entry.extract(reader, &mut writer);
+            Self::do_extraction(entry, reader, &output_dir);
+        }
+    }
+
+    pub fn extract_entries<R: Read + Seek, P: AsRef<Path>>(
+        &self,
+        reader: &mut R,
+        output_dir: P,
+        entries_or_ids: &[String],
+    ) {
+        let mut globset_builder = GlobSetBuilder::new();
+        let mut extract_ids = HashSet::new();
+
+        // build up efficient structures that we can then query when we run through all the entries
+        for entry_name in entries_or_ids {
+            if let Ok(id) = entry_name.parse::<u32>() {
+                extract_ids.insert(id);
+            } else {
+                globset_builder.add(Glob::new(entry_name).unwrap());
+            }
+        }
+        let extract_globset = globset_builder
+            .build()
+            .expect("error building entry name globset");
+
+        for entry in self {
+            if !extract_ids.contains(&entry.id()) && !extract_globset.is_match(entry.name()) {
+                continue;
+            }
+
+            Self::do_extraction(entry, reader, &output_dir);
         }
     }
 }

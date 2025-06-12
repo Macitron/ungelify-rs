@@ -23,7 +23,7 @@ pub enum Cmd {
         arg_required_else_help = true,
         aliases = ["l", "ls", "list-contents"])]
     List {
-        #[arg(value_name = "ARCHIVE", help = "The archive to list")]
+        #[arg(value_name = "ARCHIVE", help = "Path to the archive")]
         archive_path: PathBuf,
     },
     #[command(
@@ -31,8 +31,10 @@ pub enum Cmd {
         arg_required_else_help = true,
         aliases = ["x", "ex"])]
     Extract {
-        #[arg(value_name = "ARCHIVE", help = "The archive to extract")]
+        #[arg(value_name = "ARCHIVE", help = "Path to the archive")]
         archive_path: PathBuf,
+        #[arg(value_name = "ENTRIES", help = "Entry names/globs/IDs to extract")]
+        entries: Vec<String>,
         #[arg(short, long, help = "Output directory for extracted files")]
         output_dir: Option<PathBuf>,
     },
@@ -48,6 +50,7 @@ pub fn run(cli: Cli) {
         }
         Cmd::Extract {
             archive_path,
+            entries,
             output_dir,
         } => {
             assert!(archive_path.is_file());
@@ -58,7 +61,12 @@ pub fn run(cli: Cli) {
 
             let mut reader = BufReader::new(File::open(&archive_path).unwrap());
             let mpk = MagesArchive::build(&mut reader);
-            mpk.extract(&mut reader, &output_dir);
+
+            if entries.is_empty() {
+                mpk.extract(&mut reader, &output_dir);
+            } else {
+                mpk.extract_entries(&mut reader, &output_dir, &entries);
+            }
         }
     }
 }
