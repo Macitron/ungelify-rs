@@ -5,7 +5,9 @@ use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use std::io::Read;
+use std::fs::File;
+use std::io::{BufWriter, Read, Seek, SeekFrom};
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct MagesArchive {
@@ -93,6 +95,15 @@ impl MagesArchive {
                 ByteSize::b(entry.len_deflated()),
                 entry.offset()
             );
+        }
+    }
+
+    pub fn extract<R: Read + Seek, P: AsRef<Path>>(&self, reader: &mut R, output_dir: P) {
+        for entry in self {
+            reader.seek(SeekFrom::Start(entry.offset())).unwrap();
+            let extract_path = output_dir.as_ref().join(entry.name());
+            let mut writer = BufWriter::new(File::create(&extract_path).unwrap());
+            entry.extract(reader, &mut writer);
         }
     }
 }
