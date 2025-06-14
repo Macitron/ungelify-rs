@@ -3,7 +3,7 @@ use crate::mpk::bytes::{MpkEntryV1, MpkEntryV2, MpkHeader};
 use crate::mpk::entry::MagesEntry;
 use crate::mpk::iter::Entries;
 use bytesize::ByteSize;
-use globset::{Glob, GlobSetBuilder};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -124,9 +124,29 @@ impl MagesArchive {
     }
 
     pub fn extract<R: Read + Seek, P: AsRef<Path>>(&self, reader: &mut R, output_dir: P) {
-        for entry in self {
-            Self::do_extraction(entry, reader, &output_dir);
+        self.iter()
+            .for_each(|entry| Self::do_extraction(entry, reader, &output_dir));
+    }
+
+    // build up efficient structures that we can then query when we run through all the entries
+    // to decide which ones to extract
+    fn build_search_structures(entries_or_ids: &[String]) -> (GlobSet, HashSet<u32>) {
+        let mut globset_builder = GlobSetBuilder::new();
+        let mut extract_ids = HashSet::new();
+        for entry_name in entries_or_ids {
+            if let Ok(id) = entry_name.parse::<u32>() {
+                extract_ids.insert(id);
+            } else {
+                globset_builder.add(Glob::new(entry_name).unwrap());
+            }
         }
+
+        (
+            globset_builder
+                .build()
+                .expect("error building entry name globset"),
+            extract_ids,
+        )
     }
 
     pub fn extract_entries<R: Read + Seek, P: AsRef<Path>>(
@@ -135,28 +155,12 @@ impl MagesArchive {
         output_dir: P,
         entries_or_ids: &[String],
     ) {
-        let mut globset_builder = GlobSetBuilder::new();
-        let mut extract_ids = HashSet::new();
-
-        // build up efficient structures that we can then query when we run through all the entries
-        for entry_name in entries_or_ids {
-            if let Ok(id) = entry_name.parse::<u32>() {
-                extract_ids.insert(id);
-            } else {
-                globset_builder.add(Glob::new(entry_name).unwrap());
-            }
-        }
-        let extract_globset = globset_builder
-            .build()
-            .expect("error building entry name globset");
-
-        for entry in self {
-            if extract_ids.contains(&entry.id()) || extract_globset.is_match(entry.name()) {
-                continue;
-            }
-
-            Self::do_extraction(entry, reader, &output_dir);
-        }
+        let (extract_globset, extract_ids) = Self::build_search_structures(entries_or_ids);
+        self.iter()
+            .filter(|&entry| {
+                extract_ids.contains(&entry.id()) || extract_globset.is_match(entry.name())
+            })
+            .for_each(|entry| Self::do_extraction(entry, reader, &output_dir));
     }
 
     fn write_header<W: Write>(&self, writer: &mut W) {
