@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use ungelify::mpk::MagesArchive;
 
@@ -45,6 +46,25 @@ pub enum Cmd {
         )]
         output_dir: Option<PathBuf>,
     },
+    #[command(
+        about = "Repack files to a new archive",
+        arg_required_else_help = true,
+        aliases = ["replace", "r", "re"])]
+    Repack {
+        #[arg(value_name = "ARCHIVE", help = "The path to the archive.")]
+        archive_path: PathBuf,
+        #[arg(
+            value_name = "REPACK_FILES",
+            help = "A list of file paths to repack the new archive with."
+        )]
+        rpk_files: Vec<PathBuf>,
+    },
+}
+
+fn append_to_path(p: impl Into<OsString>, s: impl AsRef<OsStr>) -> PathBuf {
+    let mut p = p.into();
+    p.push(s);
+    p.into()
 }
 
 pub fn run(cli: Cli) {
@@ -74,6 +94,22 @@ pub fn run(cli: Cli) {
             } else {
                 mpk.extract_entries(&mut reader, &output_dir, &entries);
             }
+        }
+        Cmd::Repack {
+            archive_path,
+            rpk_files,
+        } => {
+            eprintln!("archive_path = {archive_path:?}, rpk_files = {rpk_files:?}");
+            assert!(archive_path.is_file());
+            let orig_path = append_to_path(&archive_path, ".orig");
+            eprintln!("orig_path = {orig_path:?}");
+            fs::rename(&archive_path, &orig_path).unwrap();
+
+            let mut orig_reader = BufReader::new(File::open(&orig_path).unwrap());
+            let mpk = MagesArchive::build(&mut orig_reader);
+            let mut rpk_writer = BufWriter::new(File::create(&archive_path).unwrap());
+
+            mpk.repack_entries(&mut orig_reader, &mut rpk_writer, &rpk_files);
         }
     }
 }

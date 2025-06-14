@@ -74,6 +74,18 @@ impl MagesEntry {
             io::copy(reader, writer).expect("failed to copy entry from reader")
         }
     }
+
+    #[must_use]
+    pub fn updated(&self, offset: u64, len_deflated: u64, len_compressed: u64) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            offset,
+            len_deflated,
+            len_compressed,
+            cpr_indicator: self.cpr_indicator,
+        }
+    }
 }
 
 impl From<MpkEntryV1> for MagesEntry {
