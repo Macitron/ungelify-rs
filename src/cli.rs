@@ -99,10 +99,8 @@ pub fn run(cli: Cli) {
             archive_path,
             rpk_files,
         } => {
-            eprintln!("archive_path = {archive_path:?}, rpk_files = {rpk_files:?}");
             assert!(archive_path.is_file());
             let orig_path = append_to_path(&archive_path, ".orig");
-            eprintln!("orig_path = {orig_path:?}");
             fs::rename(&archive_path, &orig_path).unwrap();
 
             let mut orig_reader = BufReader::new(File::open(&orig_path).unwrap());
