@@ -58,6 +58,12 @@ pub enum Cmd {
             help = "A list of file paths to repack the new archive with."
         )]
         rpk_files: Vec<PathBuf>,
+        #[arg(
+            short,
+            long,
+            help = "Do not save a backup copy of the original archive."
+        )]
+        no_save: bool,
     },
 }
 
@@ -98,6 +104,7 @@ pub fn run(cli: Cli) {
         Cmd::Repack {
             archive_path,
             rpk_files,
+            no_save,
         } => {
             assert!(archive_path.is_file());
             let orig_path = append_to_path(&archive_path, ".orig");
@@ -108,6 +115,10 @@ pub fn run(cli: Cli) {
             let mut rpk_writer = BufWriter::new(File::create(&archive_path).unwrap());
 
             mpk.repack_entries(&mut orig_reader, &mut rpk_writer, &rpk_files);
+
+            if no_save {
+                fs::remove_file(&orig_path).unwrap();
+            }
         }
     }
 }
