@@ -1,7 +1,7 @@
 use crate::mpk::bytes;
 use crate::mpk::bytes::{MpkEntryV1, MpkEntryV2, MpkHeader};
 use crate::mpk::entry::MagesEntry;
-use crate::mpk::iter::Entries;
+use crate::mpk::iter::{Entries, EntriesMut, IntoEntries};
 use bytesize::ByteSize;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use indexmap::IndexMap;
@@ -79,6 +79,11 @@ impl MagesArchive {
     #[must_use]
     pub fn iter(&self) -> Entries {
         Entries::new(&self.entries)
+    }
+
+    #[must_use]
+    pub fn iter_mut(&mut self) -> EntriesMut {
+        EntriesMut::new(&mut self.entries)
     }
 
     #[must_use]
@@ -300,5 +305,23 @@ impl<'a> IntoIterator for &'a MagesArchive {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut MagesArchive {
+    type Item = &'a mut MagesEntry;
+    type IntoIter = EntriesMut<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl IntoIterator for MagesArchive {
+    type Item = MagesEntry;
+    type IntoIter = IntoEntries;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoEntries::new(self.entries)
     }
 }
