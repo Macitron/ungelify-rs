@@ -100,11 +100,12 @@ impl MagesArchive {
 
         for entry in self {
             // TODO implement Display for entries
+            let cpr_suffix = if entry.is_compressed() { "*" } else { "" };
             println!(
                 "{:<5} {:<20} {:<12} 0x{:x}",
                 entry.id(),
                 entry.name(),
-                ByteSize::b(entry.len_deflated()),
+                format!("{}{cpr_suffix}", ByteSize::b(entry.len_deflated())),
                 entry.offset()
             );
         }
